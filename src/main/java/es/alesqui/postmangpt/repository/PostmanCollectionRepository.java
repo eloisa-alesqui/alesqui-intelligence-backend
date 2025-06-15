@@ -70,13 +70,13 @@ public interface PostmanCollectionRepository extends MongoRepository<Collection,
   List<Collection> findByInfoNameContainingIgnoreCase(String name);
 
   /**
-   * Finds Collections by exact name from the Info object.
+   * Finds a Collection by exact name from the Info object.
    * 
    * @param name the exact name to search for
-   * @return List of collections with the exact name
+   * @return Optional containing the collection with the exact name, or empty if not found
    */
   @Query("{ 'info.name': ?0 }")
-  List<Collection> findByInfoName(String name);
+  Optional<Collection> findByInfoName(String name);
   				   
   /**
    * Finds Collections by schema version.
