@@ -32,7 +32,7 @@ spring.ai:
     mongodb:
       collection-name: vector_embeddings
   openai:
-    api-key: your-openai-api-key
+    api-key: ${OPENAI_API_KEY:your-openai-api-key}
 ```
 - **What it does:** Enables AI-powered features within the application
 - **Vector Store:** Stores AI embeddings in MongoDB for semantic search capabilities
