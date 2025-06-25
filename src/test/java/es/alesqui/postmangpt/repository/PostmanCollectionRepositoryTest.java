@@ -1,543 +1,548 @@
 package es.alesqui.postmangpt.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
+import java.util.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.data.mongo.DataMongoTest;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-
 import es.alesqui.postmangpt.model.Collection;
-import es.alesqui.postmangpt.model.Description;
 import es.alesqui.postmangpt.model.Info;
+import es.alesqui.postmangpt.model.Description;
 import es.alesqui.postmangpt.model.Item;
 import es.alesqui.postmangpt.model.Request;
 import es.alesqui.postmangpt.model.Url;
 import es.alesqui.postmangpt.model.Variable;
-import es.alesqui.postmangpt.model.Version;
 import es.alesqui.postmangpt.model.enums.RequestMethod;
+import es.alesqui.postmangpt.config.EmbeddedMongoConfig;
+import es.alesqui.postmangpt.model.Auth;
+import es.alesqui.postmangpt.model.Event;
+import es.alesqui.postmangpt.model.Script;
+import es.alesqui.postmangpt.model.Body;
+import es.alesqui.postmangpt.model.FormParameter;
+import es.alesqui.postmangpt.model.GraphQLBody;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
-@DataMongoTest
+/**
+ * Integration tests for PostmanCollectionRepository. Tests all reactive MongoDB
+ * operations and custom queries.
+ */
+@SpringBootTest(classes = EmbeddedMongoConfig.class)
 @ActiveProfiles("test")
+@DisplayName("PostmanCollectionRepository Tests")
 class PostmanCollectionRepositoryTest {
 
 	@Autowired
 	private PostmanCollectionRepository repository;
 
-	private Collection sampleCollection;
-	private Info sampleInfo;
+	private Collection testCollection1;
+	private Collection testCollection2;
+	private Collection testCollection3;
 
 	@BeforeEach
 	void setUp() {
 		// Clean database before each test
-		repository.deleteAll();
+		repository.deleteAll().block(Duration.ofSeconds(5));
 
-		// Create test data
-		sampleInfo = Info.builder().name("Test API Collection")
-				.description(Description.create("Collection for testing REST APIs"))
-				.schema("https://schema.getpostman.com/json/collection/v2.1.0/collection.json")
-				.postmanId(UUID.randomUUID().toString()).version(Version.builder().major(1).minor(0).patch(0).build())
-				.build();
-
-		sampleCollection = Collection.builder().info(sampleInfo).item(new ArrayList<>()).variable(new ArrayList<>())
-				.build();
+		// Create test collections
+		testCollection1 = createTestCollection1();
+		testCollection2 = createTestCollection2();
+		testCollection3 = createTestCollection3();
 	}
 
 	@AfterEach
 	void tearDown() {
-		repository.deleteAll();
+		// Clean database after each test
+		repository.deleteAll().block(Duration.ofSeconds(5));
 	}
 
-	// ========== BASIC TESTS ==========
+	// ========================================
+	// BASIC CRUD OPERATIONS TESTS
+	// ========================================
 
-	@Test
-	void contextLoads() {
-		assertThat(repository).isNotNull();
+	@Nested
+	@DisplayName("Basic CRUD Operations")
+	class BasicCrudOperationsTest {
+
+		@Test
+		@DisplayName("Should save and retrieve collection")
+		void shouldSaveAndRetrieveCollection() {
+			// When
+			Mono<Collection> savedCollection = repository.save(testCollection1);
+
+			// Then
+			StepVerifier.create(savedCollection).assertNext(collection -> {
+				assertThat(collection.getId()).isNotNull();
+				assertThat(collection.getInfo().getName()).isEqualTo("Test API Collection");
+			}).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collection by ID")
+		void shouldFindCollectionById() {
+			// Given
+			Collection saved = repository.save(testCollection1).block();
+
+			// When
+			Mono<Collection> found = repository.findById(saved.getId());
+
+			// Then
+			StepVerifier.create(found).assertNext(collection -> {
+				assertThat(collection.getId()).isEqualTo(saved.getId());
+				assertThat(collection.getInfo().getName()).isEqualTo("Test API Collection");
+			}).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should return empty when collection not found")
+		void shouldReturnEmptyWhenCollectionNotFound() {
+			// When
+			Mono<Collection> found = repository.findById("nonexistent-id");
+
+			// Then
+			StepVerifier.create(found).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find all collections")
+		void shouldFindAllCollections() {
+			// Given
+			repository.saveAll(Arrays.asList(testCollection1, testCollection2, testCollection3))
+					.blockLast(Duration.ofSeconds(5));
+
+			// When
+			Flux<Collection> allCollections = repository.findAll();
+
+			// Then
+			StepVerifier.create(allCollections).expectNextCount(3).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should delete collection by ID")
+		void shouldDeleteCollectionById() {
+			// Given
+			Collection saved = repository.save(testCollection1).block();
+
+			// When
+			Mono<Void> deleteResult = repository.deleteById(saved.getId());
+
+			// Then
+			StepVerifier.create(deleteResult).verifyComplete();
+
+			StepVerifier.create(repository.findById(saved.getId())).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should count collections")
+		void shouldCountCollections() {
+			// Given
+			repository.saveAll(Arrays.asList(testCollection1, testCollection2)).blockLast(Duration.ofSeconds(5));
+
+			// When
+			Mono<Long> count = repository.count();
+
+			// Then
+			StepVerifier.create(count).expectNext(2L).verifyComplete();
+		}
 	}
 
-	@Test
-	void repositoryCanPerformBasicOperations() {
-		long initialCount = repository.count();
-		assertThat(initialCount).isEqualTo(0);
+	// ========================================
+	// INFO-BASED QUERIES TESTS
+	// ========================================
+
+	@Nested
+	@DisplayName("Info-based Queries")
+	class InfoBasedQueriesTest {
+
+		@BeforeEach
+		void setUpCollections() {
+			repository.saveAll(Arrays.asList(testCollection1, testCollection2, testCollection3))
+					.blockLast(Duration.ofSeconds(5));
+		}
+
+		@Test
+		@DisplayName("Should find collections by name containing (case insensitive)")
+		void shouldFindByInfoNameContainingIgnoreCase() {
+			// When
+			Flux<Collection> results = repository.findByInfoNameContainingIgnoreCase("api");
+
+			// Then
+			StepVerifier.create(results)
+					.assertNext(collection -> assertThat(collection.getInfo().getName()).containsIgnoringCase("api"))
+					.expectNextCount(1) // Expecting GraphQL collection too
+					.verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collection by exact name")
+		void shouldFindByInfoName() {
+			// When
+			Mono<Collection> result = repository.findByInfoName("Test API Collection");
+
+			// Then
+			StepVerifier.create(result)
+					.assertNext(
+							collection -> assertThat(collection.getInfo().getName()).isEqualTo("Test API Collection"))
+					.verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections by schema")
+		void shouldFindByInfoSchema() {
+			// When
+			Flux<Collection> results = repository
+					.findByInfoSchema("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
+
+			// Then
+			StepVerifier.create(results).expectNextCount(3).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections by description type")
+		void shouldFindByInfoDescriptionType() {
+			// When
+			Flux<Collection> results = repository.findByInfoDescriptionType("text/markdown");
+
+			// Then
+			StepVerifier.create(results).assertNext(collection -> {
+				assertThat(collection.getInfo().getDescription().getType()).isEqualTo("text/markdown");
+				assertThat(collection.getInfo().getName()).isEqualTo("Test API Collection");
+			}).assertNext(collection -> {
+				assertThat(collection.getInfo().getDescription().getType()).isEqualTo("text/markdown");
+				assertThat(collection.getInfo().getName()).isEqualTo("GraphQL API Collection");
+			}).verifyComplete();
+		}
 	}
 
-	// ========== BASIC CRUD TESTS ==========
+	// ========================================
+	// COLLECTION STRUCTURE QUERIES TESTS
+	// ========================================
 
-	@Test
-	void shouldSaveCollection() {
-		// When
-		Collection saved = repository.save(sampleCollection);
+	@Nested
+	@DisplayName("Collection Structure Queries")
+	class CollectionStructureQueriesTest {
 
-		// Then
-		assertThat(saved).isNotNull();
-		assertThat(saved.getId()).isNotNull(); // MongoDB generates the ID
-		assertThat(saved.getName()).isEqualTo("Test API Collection");
-		assertThat(saved.getDescription()).isEqualTo("Collection for testing REST APIs");
-		assertThat(saved.getPostmanId()).isNotNull();
-		assertThat(saved.getSchema()).isEqualTo("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
+		@BeforeEach
+		void setUpCollections() {
+			repository.saveAll(Arrays.asList(testCollection1, testCollection2, testCollection3))
+					.blockLast(Duration.ofSeconds(5));
+		}
 
-		// Verify it was saved to database
-		assertThat(repository.count()).isEqualTo(1);
+		@Test
+		@DisplayName("Should find collections by item name containing")
+		void shouldFindByItemNameContainingIgnoreCase() {
+			// When
+			Flux<Collection> results = repository.findByItemNameContainingIgnoreCase("users");
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections by request method")
+		void shouldFindByRequestMethod() {
+			// When
+			Flux<Collection> results = repository.findByRequestMethod("POST");
+
+			// Then
+			StepVerifier.create(results).expectNextCount(2).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections by request URL containing")
+		void shouldFindByRequestUrlContaining() {
+			// When
+			Flux<Collection> results = repository.findByRequestUrlContaining("api.example.com");
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections by variable key")
+		void shouldFindByVariableKey() {
+			// When
+			Flux<Collection> results = repository.findByVariableKey("baseUrl");
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
 	}
 
-	@Test
-	void shouldFindById() {
-		// Given
-		Collection saved = repository.save(sampleCollection);
+	// ========================================
+	// ADVANCED SEARCH TESTS
+	// ========================================
 
-		// When
-		Optional<Collection> found = repository.findById(saved.getId());
+	@Nested
+	@DisplayName("Advanced Search and Filtering")
+	class AdvancedSearchTest {
 
-		// Then
-		assertThat(found).isPresent();
-		Collection foundCollection = found.get();
-		assertThat(foundCollection.getName()).isEqualTo("Test API Collection");
-		assertThat(foundCollection.getDescription()).isEqualTo("Collection for testing REST APIs");
-		assertThat(foundCollection.getPostmanId()).isEqualTo(sampleCollection.getPostmanId());
+		@BeforeEach
+		void setUpCollections() {
+			repository.saveAll(Arrays.asList(testCollection1, testCollection2, testCollection3))
+					.blockLast(Duration.ofSeconds(5));
+		}
+
+		@Test
+		@DisplayName("Should find collections by description content containing")
+		void shouldFindByInfoDescriptionContentContainingIgnoreCase() {
+			// When
+			Flux<Collection> results = repository.findByInfoDescriptionContentContainingIgnoreCase("REST");
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should search collections across multiple fields")
+		void shouldSearchCollections() {
+			// When
+			Flux<Collection> results = repository.searchCollections("GraphQL");
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections by name pattern and method")
+		void shouldFindByNamePatternAndMethod() {
+			// When
+			Flux<Collection> results = repository.findByNamePatternAndMethod("API", "GET");
+
+			// Then
+			StepVerifier.create(results).assertNext(collection -> {
+				// Assert the properties of the first matching collection
+				assertNotNull(collection);
+				assertEquals("Test API Collection", collection.getInfo().getName());
+			}).assertNext(collection -> {
+				// Assert the properties of the second matching collection
+				assertNotNull(collection);
+				assertEquals("GraphQL API Collection", collection.getInfo().getName());
+			}).expectComplete().verify();
+		}
 	}
 
-	@Test
-	void shouldReturnEmptyWhenFindByIdNotExists() {
-		// When
-		Optional<Collection> found = repository.findById("nonexistent-id");
+	// ========================================
+	// METADATA AND UTILITY QUERIES TESTS
+	// ========================================
 
-		// Then
-		assertThat(found).isEmpty();
+	@Nested
+	@DisplayName("Metadata and Utility Queries")
+	class MetadataUtilityQueriesTest {
+
+		@BeforeEach
+		void setUpCollections() {
+			repository.saveAll(Arrays.asList(testCollection1, testCollection2, testCollection3))
+					.blockLast(Duration.ofSeconds(5));
+		}
+
+		@Test
+		@DisplayName("Should count collections by request method")
+		void shouldCountByRequestMethod() {
+			// When
+			Mono<Long> count = repository.countByRequestMethod("GET");
+
+			// Then
+			StepVerifier.create(count).expectNext(2L).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections with authentication and log detailed info")
+		void shouldFindCollectionsWithAuth() {
+			// When
+			Flux<Collection> results = repository.findCollectionsWithAuth();
+
+			// Then
+			StepVerifier.create(results).assertNext(collection -> {
+				assertThat(collection.getInfo().getName()).isEqualTo("Test API Collection");
+				assertThat(collection.getItem()).hasSize(2);
+
+				// Verify that at least one item has authentication
+				boolean hasAuth = collection.getItem().stream().anyMatch(item -> item.getRequest().getAuth() != null);
+				assertThat(hasAuth).isTrue();
+
+				// Verify specific auth type
+				Item createUserItem = collection.getItem().stream().filter(item -> "Create User".equals(item.getName()))
+						.findFirst().orElseThrow(() -> new AssertionError("Create User item not found"));
+
+				assertThat(createUserItem.getRequest().getAuth()).isNotNull();
+				assertThat(createUserItem.getRequest().getAuth().getType()).isEqualTo("bearer");
+			}).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections with scripts")
+		void shouldFindCollectionsWithScripts() {
+			// When
+			Flux<Collection> results = repository.findCollectionsWithScripts();
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections by item count between")
+		void shouldFindByItemCountBetween() {
+			// When
+			Flux<Collection> results = repository.findByItemCountBetween(1, 3);
+
+			// Then
+			StepVerifier.create(results).expectNextCount(3).verifyComplete();
+		}
 	}
 
-	@Test
-	void shouldFindAll() {
-		// Given - Create multiple collections
-		Collection collection1 = Collection.create("API Tests", "Testing API endpoints");
-		Collection collection2 = Collection.create("Integration Tests", "Integration testing collection");
-		Collection collection3 = Collection.create("Unit Tests", "Unit testing collection");
+	// ========================================
+	// POSTMAN-SPECIFIC QUERIES TESTS
+	// ========================================
 
-		repository.saveAll(Arrays.asList(collection1, collection2, collection3));
+	@Nested
+	@DisplayName("Postman-specific Queries")
+	class PostmanSpecificQueriesTest {
 
-		// When
-		List<Collection> collections = repository.findAll();
+		@BeforeEach
+		void setUpCollections() {
+			repository.saveAll(Arrays.asList(testCollection1, testCollection2, testCollection3))
+					.blockLast(Duration.ofSeconds(5));
+		}
 
-		// Then
-		assertThat(collections).hasSize(3);
-		assertThat(collections).extracting(Collection::getName).containsExactlyInAnyOrder("API Tests",
-				"Integration Tests", "Unit Tests");
+		@Test
+		@DisplayName("Should find collections with GraphQL")
+		void shouldFindCollectionsWithGraphQL() {
+			// When
+			Flux<Collection> results = repository.findCollectionsWithGraphQL();
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find collections with file uploads")
+		void shouldFindCollectionsWithFileUploads() {
+			// When
+			Flux<Collection> results = repository.findCollectionsWithFileUploads();
+
+			// Then
+			StepVerifier.create(results).expectNextCount(1).verifyComplete();
+		}
 	}
 
-	@Test
-	void shouldUpdateCollection() {
-		// Given
-		Collection saved = repository.save(sampleCollection);
+	// ========================================
+	// VALIDATION AND EXISTENCE CHECKS TESTS
+	// ========================================
 
-		// When - Update using fluent API
-		saved.withName("Updated Collection Name").withDescription("Updated description for testing");
-		Collection updated = repository.save(saved);
+	@Nested
+	@DisplayName("Validation and Existence Checks")
+	class ValidationExistenceChecksTest {
 
-		// Then
-		assertThat(updated.getId()).isEqualTo(saved.getId());
-		assertThat(updated.getName()).isEqualTo("Updated Collection Name");
-		assertThat(updated.getDescription()).isEqualTo("Updated description for testing");
+		@BeforeEach
+		void setUpCollections() {
+			repository.save(testCollection1).block(Duration.ofSeconds(5));
+		}
 
-		// Verify in database
-		Optional<Collection> found = repository.findById(saved.getId());
-		assertThat(found).isPresent();
-		assertThat(found.get().getName()).isEqualTo("Updated Collection Name");
+		@Test
+		@DisplayName("Should check if collection exists by name")
+		void shouldCheckExistsByInfoName() {
+			// When
+			Mono<Boolean> exists = repository.existsByInfoName("Test API Collection");
+			Mono<Boolean> notExists = repository.existsByInfoName("Non-existent Collection");
+
+			// Then
+			StepVerifier.create(exists).expectNext(true).verifyComplete();
+
+			StepVerifier.create(notExists).expectNext(false).verifyComplete();
+		}
+
+		@Test
+		@DisplayName("Should find first collection ordered by ID desc")
+		void shouldFindFirstByOrderByIdDesc() {
+			// Given
+			repository.saveAll(Arrays.asList(testCollection2, testCollection3)).blockLast(Duration.ofSeconds(5));
+
+			// When
+			Mono<Collection> result = repository.findFirstByOrderByIdDesc();
+
+			// Then
+			StepVerifier.create(result).assertNext(collection -> assertThat(collection).isNotNull()).verifyComplete();
+		}
 	}
 
-	@Test
-	void shouldDeleteById() {
-		// Given
-		Collection saved = repository.save(sampleCollection);
-		assertThat(repository.count()).isEqualTo(1);
+	// ========================================
+	// TEST DATA CREATION METHODS
+	// ========================================
 
-		// When
-		repository.deleteById(saved.getId());
+	private Collection createTestCollection1() {
+		Info info = Info.builder().name("Test API Collection")
+				.description(Description.builder().content("A comprehensive REST API collection for testing")
+						.type("text/markdown").build())
+				.schema("https://schema.getpostman.com/json/collection/v2.1.0/collection.json").build();
 
-		// Then
-		assertThat(repository.count()).isEqualTo(0);
-		Optional<Collection> found = repository.findById(saved.getId());
-		assertThat(found).isEmpty();
-	}
+		Item getUsersItem = Item.builder().name("Get Users").request(Request.builder().method(RequestMethod.GET)
+				.url(Url.builder().raw("https://api.example.com/users").build()).build()).build();
 
-	@Test
-	void shouldDeleteAll() {
-		// Given
-		repository.saveAll(Arrays.asList(Collection.create("Collection 1", "First collection"),
-				Collection.create("Collection 2", "Second collection"),
-				Collection.create("Collection 3", "Third collection")));
-		assertThat(repository.count()).isEqualTo(3);
-
-		// When
-		repository.deleteAll();
-
-		// Then
-		assertThat(repository.count()).isEqualTo(0);
-		List<Collection> collections = repository.findAll();
-		assertThat(collections).isEmpty();
-	}
-
-	// ========== FACTORY METHODS TESTS ==========
-
-	@Test
-	void shouldCreateCollectionWithName() {
-		// Given
-		Collection collection = Collection.create("Simple Collection");
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getName()).isEqualTo("Simple Collection");
-		assertThat(saved.getPostmanId()).isNotNull();
-		assertThat(saved.getSchema()).isEqualTo("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
-		assertThat(saved.getInfo().getVersion().getMajor()).isEqualTo(1);
-	}
-
-	@Test
-	void shouldCreateCollectionWithNameAndDescription() {
-		// Given
-		Collection collection = Collection.create("API Collection", "Collection for API testing");
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getName()).isEqualTo("API Collection");
-		assertThat(saved.getDescription()).isEqualTo("Collection for API testing");
-		assertThat(saved.isValid()).isTrue();
-	}
-
-	// ========== FLUENT API TESTS ==========
-
-	@Test
-	void shouldUseFluentApiForBuilding() {
-		// Given
-		Collection collection = Collection.create("Base Collection").withDescription("Fluent API test")
-				.addVariable("baseUrl", "https://api.example.com")
-				.addVariable("apiKey", "secret-key", "API authentication key").addFolder("Authentication")
-				.addFolder("Users", new ArrayList<>());
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getName()).isEqualTo("Base Collection");
-		assertThat(saved.getDescription()).isEqualTo("Fluent API test");
-		assertThat(saved.getVariableCount()).isEqualTo(2);
-		assertThat(saved.getItemCount()).isEqualTo(2);
-		assertThat(saved.hasVariables()).isTrue();
-		assertThat(saved.hasItems()).isTrue();
-	}
-
-	@Test
-	void shouldHandleVariables() {
-		// Given
-		Collection collection = Collection.create("Variable Test").addVariable("env", "development")
-				.addVariable("timeout", "5000").addVariable("retries", "3", "Number of retry attempts");
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getVariableCount()).isEqualTo(3);
-		assertThat(saved.hasVariables()).isTrue();
-
-		Variable envVar = saved.findVariableByKey("env");
-		assertThat(envVar).isNotNull();
-		assertThat(envVar.getValue()).isEqualTo("development");
-
-		Variable retriesVar = saved.findVariableByKey("retries");
-		assertThat(retriesVar).isNotNull();
-		assertThat(retriesVar.getDescription().getContent()).isEqualTo("Number of retry attempts");
-	}
-
-	@Test
-	void shouldHandleItems() {
-		// Given - Create items using builder pattern
-		Item requestItem = Item.builder().name("Get Users")
-				.request(Request.builder().method(RequestMethod.GET).url(Url.create("{{baseUrl}}/users")).build())
+		Item createUserItem = Item.builder().name("Create User")
+				.request(Request.builder().method(RequestMethod.POST)
+						.url(Url.builder().raw("https://api.example.com/users").build())
+						.auth(Auth.builder().type("bearer").build()).build())
+				.event(Collections
+						.singletonList(Event.builder().listen("test")
+								.script(Script.builder().type("text/javascript")
+										.exec(Arrays.asList("pm.test('Status code is 201', function () {",
+												"    pm.response.to.have.status(201);", "});"))
+										.build())
+								.build()))
 				.build();
 
-		Collection collection = Collection.create("Items Test").addItem(requestItem).addFolder("Authentication");
+		Variable baseUrlVar = Variable.builder().key("baseUrl").value("https://api.example.com").type("string").build();
 
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getItemCount()).isEqualTo(2);
-		assertThat(saved.hasItems()).isTrue();
-		assertThat(saved.isEmpty()).isFalse();
-
-		Item foundItem = saved.findItemByName("Get Users");
-		assertThat(foundItem).isNotNull();
-		assertThat(foundItem.getRequest()).isNotNull();
-		assertThat(foundItem.getRequest().getMethod().getValue()).isEqualTo("GET");
+		return Collection.builder().info(info).item(Arrays.asList(getUsersItem, createUserItem))
+				.variable(Collections.singletonList(baseUrlVar)).build();
 	}
 
-	// ========== QUERY METHODS TESTS ==========
+	private Collection createTestCollection2() {
+		Info info = Info.builder().name("File Upload Collection")
+				.description(
+						Description.builder().content("Collection for testing file uploads").type("text/plain").build())
+				.schema("https://schema.getpostman.com/json/collection/v2.1.0/collection.json").build();
 
-	@Test
-	void shouldProvideQueryMethods() {
-		// Given
-		Collection collection = Collection.create("Query Test", "Testing query methods").addVariable("var1", "value1")
-				.addVariable("var2", "value2").addFolder("Folder1").addFolder("Folder2");
+		Item uploadItem = Item.builder().name("Upload File").request(Request.builder().method(RequestMethod.POST)
+				.url(Url.builder().raw("https://upload.example.com/files").build())
+				.body(Body.builder().mode("formdata")
+						.formdata(Collections.singletonList(
+								FormParameter.builder().key("file").type("file").src("test-file.txt").build()))
+						.build())
+				.build()).build();
 
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getName()).isEqualTo("Query Test");
-		assertThat(saved.getDescription()).isEqualTo("Testing query methods");
-		assertThat(saved.getPostmanId()).isNotNull();
-		assertThat(saved.getSchema()).contains("v2.1.0");
-		assertThat(saved.getItemCount()).isEqualTo(2);
-		assertThat(saved.getVariableCount()).isEqualTo(2);
-		assertThat(saved.getEventCount()).isEqualTo(0);
-		assertThat(saved.hasAuth()).isFalse();
-		assertThat(saved.hasProtocolProfileBehavior()).isFalse();
-		assertThat(saved.hasVariables()).isTrue();
-		assertThat(saved.hasEvents()).isFalse();
-		assertThat(saved.hasItems()).isTrue();
-		assertThat(saved.isEmpty()).isFalse();
+		return Collection.builder().info(info).item(Collections.singletonList(uploadItem)).build();
 	}
 
-	@Test
-	void shouldHandleEvents() {
-		// Given
-		Collection collection = Collection.create("Events Test")
-				.addPreRequestScript("console.log('Pre-request script');")
-				.addTestScript("pm.test('Status is 200', function() { pm.response.to.have.status(200); });");
+	private Collection createTestCollection3() {
+		Info info = Info.builder().name("GraphQL API Collection")
+				.description(
+						Description.builder().content("GraphQL queries and mutations").type("text/markdown").build())
+				.schema("https://schema.getpostman.com/json/collection/v2.1.0/collection.json").build();
 
-		// When
-		Collection saved = repository.save(collection);
+		Item graphqlItem = Item.builder().name("Get User Query")
+				.request(Request.builder().method(RequestMethod.GET)
+						.url(Url.builder().raw("https://graphql.example.com/query").build())
+						.body(Body.builder().mode("graphql")
+								.graphql(GraphQLBody.builder()
+										.query("query GetUser($id: ID!) { user(id: $id) { id name email } }")
+										.variables("{\"id\": \"123\"}").build())
+								.build())
+						.build())
+				.build();
 
-		// Then
-		assertThat(saved.getEventCount()).isEqualTo(2);
-		assertThat(saved.hasEvents()).isTrue();
-	}
-
-	// ========== EDGE CASES TESTS ==========
-
-	@Test
-	void shouldHandleNullValues() {
-		// Given
-		Collection collection = new Collection();
-		collection.setInfo(Info.create("Minimal Collection"));
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved).isNotNull();
-		assertThat(saved.getId()).isNotNull();
-		assertThat(saved.getName()).isEqualTo("Minimal Collection");
-		assertThat(saved.getDescription()).isNull();
-		assertThat(saved.getItemCount()).isEqualTo(0);
-		assertThat(saved.getVariableCount()).isEqualTo(0);
-		assertThat(saved.isEmpty()).isTrue();
-	}
-
-	@Test
-	void shouldHandleEmptyCollections() {
-		// Given
-		Collection collection = Collection.create("", "");
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getName()).isEmpty();
-		assertThat(saved.getDescription()).isEmpty();
-		assertThat(saved.isEmpty()).isTrue();
-	}
-
-	@Test
-	void shouldHandleLargeData() {
-		// Given
-		String largeName = "Collection with very long name: " + "A".repeat(500);
-		String largeDescription = "Very detailed description: " + "B".repeat(2000);
-
-		Collection collection = Collection.create(largeName, largeDescription);
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		assertThat(saved.getName()).hasSize(largeName.length());
-		assertThat(saved.getDescription()).hasSize(largeDescription.length());
-	}
-
-	@Test
-	void shouldHandleSpecialCharacters() {
-		// Given
-		Collection collection = Collection.create("Collection with émojis 🚀 and spëcial chars áéíóú",
-				"Description with 中文, العربية, русский, and symbols: @#$%^&*()");
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then
-		Optional<Collection> found = repository.findById(saved.getId());
-		assertThat(found).isPresent();
-		assertThat(found.get().getName()).contains("🚀");
-		assertThat(found.get().getDescription()).contains("中文");
-	}
-
-	@Test
-	void shouldMaintainDataIntegrity() {
-		// Given
-		Collection original = repository.save(sampleCollection);
-		String originalId = original.getId();
-		String originalPostmanId = original.getPostmanId();
-
-		// When - Multiple operations
-		original.withName("Modified Name").withDescription("Modified description");
-		repository.save(original);
-
-		Collection another = Collection.create("Another", "Another collection");
-		repository.save(another);
-
-		// Then
-		List<Collection> all = repository.findAll();
-		assertThat(all).hasSize(2);
-
-		Optional<Collection> modified = repository.findById(originalId);
-		assertThat(modified).isPresent();
-		assertThat(modified.get().getName()).isEqualTo("Modified Name");
-		assertThat(modified.get().getPostmanId()).isEqualTo(originalPostmanId); // Should not change
-	}
-
-	// ========== UTILITY METHODS TESTS ==========
-
-	@Test
-	void shouldHandleUtilityMethods() {
-		// Given
-		Collection collection = Collection.create("Utility Test").addVariable("var1", "value1")
-				.addVariable("var2", "value2").addFolder("folder1").addFolder("folder2");
-
-		// When
-		Collection saved = repository.save(collection);
-
-		// Then - Test utility methods
-		assertThat(saved.removeVariable("var1")).isTrue();
-		assertThat(saved.removeVariable("nonexistent")).isFalse();
-		assertThat(saved.getVariableCount()).isEqualTo(1);
-
-		assertThat(saved.removeItem("folder1")).isTrue();
-		assertThat(saved.removeItem("nonexistent")).isFalse();
-		assertThat(saved.getItemCount()).isEqualTo(1);
-
-		saved.clearVariables();
-		assertThat(saved.hasVariables()).isFalse();
-
-		saved.clearItems();
-		assertThat(saved.isEmpty()).isTrue();
-	}
-
-	@Test
-	void shouldValidateCollection() {
-		// Given
-		Collection validCollection = Collection.create("Valid Collection", "Valid description");
-		Collection invalidCollection = new Collection(); // Without info
-
-		// When & Then
-		assertThat(validCollection.isValid()).isTrue();
-		assertThat(invalidCollection.isValid()).isFalse();
-	}
-
-	@Test
-	void shouldCopyCollection() {
-		// Given
-		Collection original = Collection.create("Original", "Original description").addVariable("key", "value")
-				.addFolder("folder");
-
-		// When
-		Collection copy = original.copy();
-
-		// Then
-		assertThat(copy).isNotSameAs(original);
-		assertThat(copy.getName()).isEqualTo(original.getName());
-		assertThat(copy.getDescription()).isEqualTo(original.getDescription());
-		assertThat(copy.getVariableCount()).isEqualTo(original.getVariableCount());
-		assertThat(copy.getItemCount()).isEqualTo(original.getItemCount());
-	}
-
-	@Test
-	void shouldProvideCollectionStats() {
-		// Given
-		Collection collection = Collection.create("Stats Test").addVariable("var1", "value1")
-				.addVariable("var2", "value2").addFolder("folder1").addFolder("folder2");
-
-		// When
-		Collection saved = repository.save(collection);
-		Collection.CollectionStats stats = saved.getStats();
-
-		// Then
-		assertThat(stats.getTotalItems()).isEqualTo(2);
-		assertThat(stats.getTotalVariables()).isEqualTo(2);
-		assertThat(stats.getTotalFolders()).isEqualTo(2);
-		assertThat(stats.getTotalRequests()).isEqualTo(0);
-		assertThat(stats.isHasAuth()).isFalse();
-		assertThat(stats.isHasProtocolProfileBehavior()).isFalse();
-	}
-
-	// ========== PERFORMANCE TESTS ==========
-
-	@Test
-	void shouldHandleBulkOperations() {
-		// Given
-		List<Collection> collections = IntStream.range(0, 50)
-				.mapToObj(i -> Collection.create("Collection " + i, "Description " + i)).collect(Collectors.toList());
-
-		// When
-		long startTime = System.currentTimeMillis();
-		List<Collection> saved = repository.saveAll(collections);
-		long endTime = System.currentTimeMillis();
-
-		// Then
-		assertThat(saved).hasSize(50);
-		assertThat(repository.count()).isEqualTo(50);
-
-		// Performance assertion (adjust according to your needs)
-		long duration = endTime - startTime;
-		assertThat(duration).isLessThan(3000); // less than 3 seconds
-	}
-
-	@Test
-	void shouldHandleComplexCollections() {
-		// Given - Create a complex collection
-		Collection complexCollection = Collection
-				.create("Complex API Collection", "Full-featured API testing collection")
-				.addVariable("baseUrl", "https://api.example.com").addVariable("apiKey", "secret-key")
-				.addVariable("timeout", "5000").addPreRequestScript("pm.globals.set('timestamp', Date.now());")
-				.addTestScript(
-						"pm.test('Response time is less than 200ms', function () { pm.expect(pm.response.responseTime).to.be.below(200); });")
-				.addFolder("Authentication").addFolder("Users").addFolder("Products");
-
-		// When
-		Collection saved = repository.save(complexCollection);
-
-		// Then
-		assertThat(saved.getName()).isEqualTo("Complex API Collection");
-		assertThat(saved.getVariableCount()).isEqualTo(3);
-		assertThat(saved.getEventCount()).isEqualTo(2);
-		assertThat(saved.getItemCount()).isEqualTo(3);
-		assertThat(saved.getTotalFolderCount()).isEqualTo(3);
-		assertThat(saved.isValid()).isTrue();
-
-		// Verify it can be retrieved correctly
-		Optional<Collection> found = repository.findById(saved.getId());
-		assertThat(found).isPresent();
-		assertThat(found.get().getVariableCount()).isEqualTo(3);
-		assertThat(found.get().getEventCount()).isEqualTo(2);
+		return Collection.builder().info(info).item(Collections.singletonList(graphqlItem)).build();
 	}
 }
