@@ -1,4 +1,4 @@
-# 🚀 Spring AI PostmanGPT Technology Stack
+# 🚀 PostmanGPT Technology Stack
 
 This documentation describes the complete technology stack used in the PostmanGPT project.
 
