@@ -1,11 +1,22 @@
 package es.alesqui.postmangpt.helper;
 
 import es.alesqui.postmangpt.dto.EndpointInfo;
-import es.alesqui.postmangpt.model.*;
+import es.alesqui.postmangpt.model.postman.Body;
+import es.alesqui.postmangpt.model.postman.Description;
+import es.alesqui.postmangpt.model.postman.FormParameter;
+import es.alesqui.postmangpt.model.postman.Header;
+import es.alesqui.postmangpt.model.postman.Item;
+import es.alesqui.postmangpt.model.postman.QueryParam;
+import es.alesqui.postmangpt.model.postman.Request;
+import es.alesqui.postmangpt.model.postman.Response;
+import es.alesqui.postmangpt.model.postman.Url;
+import es.alesqui.postmangpt.model.postman.UrlEncodedParameter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -19,7 +30,7 @@ import java.util.stream.Collectors;
  * structure, handling different URL formats, extracting parameters, and
  * building comprehensive endpoint metadata.
  * 
- * Separated from PostmanCollectionService to maintain single responsibility and
+ * Separated from PostmanService to maintain single responsibility and
  * improve code maintainability.
  */
 @Slf4j
@@ -33,7 +44,10 @@ public class PostmanEndpointExtractor {
 	private static final class Config {
 		// Regex patterns for parameter extraction
 		static final Pattern PATH_PARAM_PATTERN = Pattern
-				.compile("\\{\\{([^}]+)\\}\\}|:([a-zA-Z_][a-zA-Z0-9_]*)|\\{([^}]+)\\}");
+			    .compile(":([a-zA-Z_][a-zA-Z0-9_]*)|\\{([^}]+)\\}");
+		
+		static final Pattern POSTMAN_VARIABLE_PATTERN = Pattern
+			    .compile("\\{\\{([^}]+)\\}\\}");
 
 		// Common endpoint categorization patterns
 		static final Map<String, String> ENDPOINT_CATEGORIES = Map.of("auth|login|signin|signup", "authentication",
@@ -222,63 +236,174 @@ public class PostmanEndpointExtractor {
 	 * Extracts and constructs complete URL from various Postman formats.
 	 */
 	private String extractUrl(Request request) {
-		if (request.getUrl() == null) {
-			log.warn("Request has no URL");
-			return "";
-		}
+	    if (request.getUrl() == null) {
+	        log.warn("Request has no URL");
+	        return "";
+	    }
 
-		try {
-			// Handle string URL format
-			if (request.getUrl() instanceof String) {
-				return (String) request.getUrl();
-			}
+	    try {
+	        log.debug("🔍 Processing URL object: {}", request.getUrl().getClass().getSimpleName());
+	        
+	        // Handle LinkedHashMap format (Jackson deserialization)
+	        if (request.getUrl() instanceof Map) {
+	            Map<String, Object> urlMap = (Map<String, Object>) request.getUrl();
+	            
+	            // Try raw URL first if available
+	            Object rawUrl = urlMap.get("raw");
+	            if (rawUrl != null && StringUtils.isNotBlank(rawUrl.toString())) {
+	                log.debug("✅ Using raw URL: {}", rawUrl);
+	                return rawUrl.toString();
+	            }
+	            
+	            log.debug("⚠️ Raw URL is blank, building from components");
+	            String builtUrl = buildUrlFromMap(urlMap);
+	            log.debug("🔨 Built URL: {}", builtUrl);
+	            return builtUrl;
+	        }
 
-			// Handle Postman URL object format
-			if (request.getUrl() instanceof Url) {
-				return buildUrlFromObject((Url) request.getUrl());
-			}
+	        // Handle string URL format
+	        if (request.getUrl() instanceof String) {
+	            log.debug("✅ Using string URL: {}", request.getUrl());
+	            return (String) request.getUrl();
+	        }
 
-			// Fallback to toString
-			return request.getUrl().toString();
+	        // Fallback to toString
+	        String fallbackUrl = request.getUrl().toString();
+	        log.debug("🔄 Using toString fallback: {}", fallbackUrl);
+	        return fallbackUrl;
 
-		} catch (Exception e) {
-			log.error("Failed to extract URL from request", e);
-			return "";
-		}
+	    } catch (Exception e) {
+	        log.error("❌ Failed to extract URL from request", e);
+	        return "";
+	    }
 	}
+
+	private String buildUrlFromMap(Map<String, Object> urlMap) {
+	    try {
+	        StringBuilder urlBuilder = new StringBuilder();
+	        
+	        // Get protocol (default to https if not specified)
+	        Object protocol = urlMap.get("protocol");
+	        if (protocol != null && StringUtils.isNotBlank(protocol.toString())) {
+	            urlBuilder.append(protocol).append("://");
+	        }
+	        
+	        // Get host
+	        Object host = urlMap.get("host");
+	        if (host != null) {
+	            if (host instanceof List) {
+	                List<?> hostList = (List<?>) host;
+	                if (!hostList.isEmpty()) {
+	                    urlBuilder.append(hostList.get(0).toString());
+	                }
+	            } else {
+	                urlBuilder.append(host.toString());
+	            }
+	        }
+	        
+	        // Get port
+	        Object port = urlMap.get("port");
+	        if (port != null && StringUtils.isNotBlank(port.toString())) {
+	            urlBuilder.append(":").append(port);
+	        }
+	        
+	        // Get path
+	        Object path = urlMap.get("path");
+	        if (path != null) {
+	            if (path instanceof List) {
+	                List<?> pathList = (List<?>) path;
+	                for (Object pathSegment : pathList) {
+	                    urlBuilder.append("/").append(pathSegment.toString());
+	                }
+	            } else {
+	                if (!path.toString().startsWith("/")) {
+	                    urlBuilder.append("/");
+	                }
+	                urlBuilder.append(path.toString());
+	            }
+	        }
+	        
+	        // Get query parameters
+	        Object query = urlMap.get("query");
+	        if (query != null && query instanceof List) {
+	            List<?> queryList = (List<?>) query;
+	            if (!queryList.isEmpty()) {
+	                urlBuilder.append("?");
+	                boolean first = true;
+	                for (Object queryParam : queryList) {
+	                    if (queryParam instanceof Map) {
+	                        Map<?, ?> paramMap = (Map<?, ?>) queryParam;
+	                        Object key = paramMap.get("key");
+	                        Object value = paramMap.get("value");
+	                        
+	                        if (key != null && value != null) {
+	                            if (!first) {
+	                                urlBuilder.append("&");
+	                            }
+	                            urlBuilder.append(key).append("=").append(value);
+	                            first = false;
+	                        }
+	                    }
+	                }
+	            }
+	        }
+	        
+	        return urlBuilder.toString();
+	        
+	    } catch (Exception e) {
+	        log.error("❌ Failed to build URL from map: {}", urlMap, e);
+	        return "";
+	    }
+	}
+
 
 	/**
 	 * Builds URL string from Postman URL object with all components.
 	 */
 	private String buildUrlFromObject(Url urlObj) {
-		StringBuilder urlBuilder = new StringBuilder();
-
-		try {
-			// Add protocol
-			if (StringUtils.isNotBlank(urlObj.getProtocol())) {
-				urlBuilder.append(urlObj.getProtocol()).append("://");
-			}
-
-			// Add host (can be string or array)
-			appendHost(urlBuilder, urlObj.getHost());
-
-			// Add port
-			if (urlObj.getPort() != null) {
-				urlBuilder.append(":").append(urlObj.getPort());
-			}
-
-			// Add path (can be string or array)
-			appendPath(urlBuilder, urlObj.getPath());
-
-			// Add query parameters
-			appendQueryParameters(urlBuilder, urlObj.getQuery());
-
-		} catch (Exception e) {
-			log.error("Error building URL from object", e);
-		}
-
-		return urlBuilder.toString();
+	    try {
+	        // If we have host and path, build manually
+	        if (urlObj.getHost() != null && urlObj.getPath() != null) {
+	            StringBuilder url = new StringBuilder();
+	            
+	            // Add host
+	            if (urlObj.getHost() instanceof List) {
+	                @SuppressWarnings("unchecked")
+	                List<String> hostParts = (List<String>) urlObj.getHost();
+	                url.append(String.join(".", hostParts));
+	            } else {
+	                url.append(urlObj.getHost().toString());
+	            }
+	            
+	            // Add path
+	            if (urlObj.getPath() instanceof List) {
+	                @SuppressWarnings("unchecked")
+	                List<String> pathParts = (List<String>) urlObj.getPath();
+	                if (!pathParts.isEmpty()) {
+	                    url.append("/").append(String.join("/", pathParts));
+	                }
+	            } else {
+	                String pathStr = urlObj.getPath().toString();
+	                if (StringUtils.isNotBlank(pathStr)) {
+	                    if (!pathStr.startsWith("/")) {
+	                        url.append("/");
+	                    }
+	                    url.append(pathStr);
+	                }
+	            }
+	            
+	            return url.toString();
+	        }
+	        
+	        // Fallback to toString if we can't build properly
+	        return urlObj.toString();
+	        
+	    } catch (Exception e) {
+	        log.error("Error building URL from object", e);
+	        return urlObj.toString();
+	    }
 	}
+
 
 	/**
 	 * Appends host to URL builder (handles both string and array formats).
@@ -344,45 +469,115 @@ public class PostmanEndpointExtractor {
 		String url = extractUrl(request);
 		if (StringUtils.isBlank(url)) {
 			return List.of();
-		}
-
-		List<String> pathParams = new ArrayList<>();
-		Matcher matcher = Config.PATH_PARAM_PATTERN.matcher(url);
-
-		while (matcher.find()) {
-			String param = matcher.group(1) != null ? matcher.group(1)
-					: matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
-			if (StringUtils.isNotBlank(param)) {
-				pathParams.add(param);
-			}
-		}
-
-		log.trace("Extracted {} path parameters from URL: {}", pathParams.size(), url);
-		return pathParams;
+		} 
+		return extractPathParameters(url);
 	}
+	
+	private List<String> extractPathParameters(String url) {
+	    List<String> pathParams = new ArrayList<>();
+	    
+	    if (StringUtils.isBlank(url)) {
+	        return pathParams;
+	    }
+	    
+	    try {
+	        // Find all {param} patterns but exclude {{variable}} patterns
+	        Pattern pattern = Pattern.compile("\\{([^}]+)\\}");
+	        Matcher matcher = pattern.matcher(url);
+	        
+	        while (matcher.find()) {
+	            String fullMatch = matcher.group(0); // e.g., "{id}" or "{{var}}"
+	            String param = matcher.group(1);     // e.g., "id" or "{var"
+	            
+	            // Skip if it's a Postman variable (contains another opening brace)
+	            if (!param.startsWith("{") && !fullMatch.startsWith("{{")) {
+	                pathParams.add(param);
+	                log.debug("Found path parameter: {}", param);
+	            } else {
+	                log.debug("Skipping Postman variable: {}", fullMatch);
+	            }
+	        }
+	        
+	        log.debug("Extracted {} path parameters from URL: {}", pathParams.size(), url);
+	        
+	    } catch (Exception e) {
+	        log.error("Failed to extract path parameters from URL: {}", url, e);
+	    }
+	    
+	    return pathParams;
+	}
+
 
 	/**
 	 * Extracts query parameters with descriptions from URL object.
 	 */
 	private Map<String, String> extractQueryParameters(Request request) {
 		Map<String, String> queryParams = new HashMap<>();
-
-		if (request.getUrl() instanceof Url) {
-			Url urlObj = (Url) request.getUrl();
-			if (urlObj.getQuery() != null) {
-				for (QueryParam queryParam : urlObj.getQuery()) { // Cambio aquí también
-					if (StringUtils.isNotBlank(queryParam.getKey())) {
-						String description = buildQueryParamDescription(queryParam);
-						queryParams.put(queryParam.getKey(), description);
-					}
-				}
-			}
-		}
-
-		log.trace("Extracted {} query parameters", queryParams.size());
-		return queryParams;
+		String url = extractUrl(request);
+		if (StringUtils.isBlank(url)) {
+			return queryParams;
+		} 
+		return extractQueryParameters(url);
 	}
 
+	private Map<String, String> extractQueryParameters(String url) {
+	    Map<String, String> queryParams = new HashMap<>();
+	    
+	    if (StringUtils.isBlank(url)) {
+	        return queryParams;
+	    }
+	    
+	    try {
+	        // Find the query string part (after ?)
+	        int queryStart = url.indexOf('?');
+	        if (queryStart == -1) {
+	            log.debug("No query parameters found in URL: {}", url);
+	            return queryParams;
+	        }
+	        
+	        String queryString = url.substring(queryStart + 1);
+	        if (StringUtils.isBlank(queryString)) {
+	            return queryParams;
+	        }
+	        
+	        // Split by & to get individual parameters
+	        String[] paramPairs = queryString.split("&");
+	        
+	        for (String pair : paramPairs) {
+	            if (StringUtils.isNotBlank(pair)) {
+	                // Split by = to get key and value
+	                String[] keyValue = pair.split("=", 2); // Limit to 2 parts in case value contains =
+	                
+	                if (keyValue.length >= 1) {
+	                    String key = keyValue[0].trim();
+	                    String value = keyValue.length > 1 ? keyValue[1].trim() : "";
+	                    
+	                    if (StringUtils.isNotBlank(key)) {
+	                        // URL decode if needed
+	                        try {
+	                            key = URLDecoder.decode(key, StandardCharsets.UTF_8);
+	                            value = URLDecoder.decode(value, StandardCharsets.UTF_8);
+	                        } catch (Exception e) {
+	                            log.warn("Failed to URL decode parameter: {}={}", key, value);
+	                        }
+	                        
+	                        queryParams.put(key, value);
+	                        log.debug("Found query parameter: {} = {}", key, value);
+	                    }
+	                }
+	            }
+	        }
+	        
+	        log.debug("Extracted {} query parameters from URL: {}", queryParams.size(), url);
+	        
+	    } catch (Exception e) {
+	        log.error("Failed to extract query parameters from URL: {}", url, e);
+	    }
+	    
+	    return queryParams;
+	}
+
+	
 	/**
 	 * Builds comprehensive description for query parameter.
 	 */

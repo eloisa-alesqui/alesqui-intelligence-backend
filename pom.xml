@@ -47,6 +47,10 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-cache</artifactId>
 		</dependency>
+		<dependency>
+		    <groupId>org.springframework.boot</groupId>
+		    <artifactId>spring-boot-starter-aop</artifactId>
+		</dependency>
 		<!-- ================================================================================================ -->
 		<!-- SECURITY -->
 		<!-- ================================================================================================ -->
@@ -106,20 +110,30 @@
 			<artifactId>caffeine</artifactId>
 		</dependency>
 		<!-- ================================================================================================ -->
-		<!-- JSON PROCESSING -->
+		<!-- JSON/YAML/SWAGGER PROCESSING -->
 		<!-- ================================================================================================ -->
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
 		</dependency>
+		<dependency>
+		    <groupId>io.swagger.parser.v3</groupId>
+		    <artifactId>swagger-parser-v3</artifactId>
+		    <version>2.1.30</version>
+		</dependency>
+		<dependency>
+		    <groupId>io.swagger.core.v3</groupId>
+		    <artifactId>swagger-models</artifactId>
+		    <version>2.2.21</version>
+		</dependency>
 		<!-- ================================================================================================ -->
 		<!-- API DOCUMENTATION -->
 		<!-- ================================================================================================ -->
-		<dependency>
-			<groupId>org.springdoc</groupId>
-			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-			<version>${springdoc.version}</version>
-		</dependency>
+<!--		<dependency>-->
+<!--			<groupId>org.springdoc</groupId>-->
+<!--			<artifactId>springdoc-openapi-starter-webflux-ui</artifactId>-->
+<!--			<version>${springdoc.version}</version>-->
+<!--		</dependency>-->
 		<!-- ================================================================================================ -->
 		<!-- DEVELOPMENT TOOLS -->
 		<!-- ================================================================================================ -->
@@ -156,11 +170,6 @@
 		<dependency>
 			<groupId>io.projectreactor</groupId>
 			<artifactId>reactor-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework</groupId>
-			<artifactId>spring-webflux</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<!-- Database Testing -->

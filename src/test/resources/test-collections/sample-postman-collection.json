@@ -1,0 +1,454 @@
+{
+	"info": {
+		"_postman_id": "15ba67b0-4614-43e5-aabd-9b07a80a753a",
+		"name": "MSGestionFuncionesLDAP",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "token",
+			"item": [
+				{
+					"name": "token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"name": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "grant_type",
+									"value": "password",
+									"type": "text"
+								},
+								{
+									"key": "client_id",
+									"value": "{{client_id}}",
+									"type": "text"
+								},
+								{
+									"key": "client_secret",
+									"value": "{{client_secret}}",
+									"type": "text"
+								},
+								{
+									"key": "username",
+									"value": "XGisoInt",
+									"type": "text"
+								},
+								{
+									"key": "password",
+									"value": "{{password}}",
+									"type": "text"
+								},
+								{
+									"key": "scope",
+									"value": "MSGestionFuncionesLDAP.Default",
+									"type": "text"
+								}
+							],
+							"options": {
+								"urlencoded": {
+									
+								}
+							}
+						},
+						"url": {
+							"raw": "{{APIManagerIn}}/token",
+							"host": [
+								"{{APIManagerIn}}"
+							],
+							"path": [
+								"token"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"protocolProfileBehavior": {
+				
+			}
+		},
+		{
+			"name": "consultaPerfilFuncional",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/consultaPerfilFuncional?aplicacion=Hermes&perfil=Administrador",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"consultaPerfilFuncional"
+					],
+					"query": [
+						{
+							"key": "aplicacion",
+							"value": "Hermes"
+						},
+						{
+							"key": "perfil",
+							"value": "Administrador"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "consultaUsoFuncion",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/consultaUsoFuncion?aplicacion=GISO&funcion=MantenimientoZonasSubzonasPrestacion",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"consultaUsoFuncion"
+					],
+					"query": [
+						{
+							"key": "aplicacion",
+							"value": "GISO"
+						},
+						{
+							"key": "funcion",
+							"value": "MantenimientoZonasSubzonasPrestacion"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "consultaFuncionesAplicacion",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/consultaFuncionesAplicacion?aplicacion=Hermes",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"consultaFuncionesAplicacion"
+					],
+					"query": [
+						{
+							"key": "aplicacion",
+							"value": "Hermes"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "consultaFuncionesEntorno",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/consultaFuncionesEntorno?aplicacion=Hermes&entorno=Empleado",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"consultaFuncionesEntorno"
+					],
+					"query": [
+						{
+							"key": "aplicacion",
+							"value": "Hermes"
+						},
+						{
+							"key": "entorno",
+							"value": "Empleado"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "agregarFuncionEntorno",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"aplicacion\": \"Hermes\",\r\n    \"funcion\": \"Prueba\",\r\n    \"entorno\": \"Empleado\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/agregarFuncionEntorno",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"agregarFuncionEntorno"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "agregarFuncionPerfil",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"aplicacion\": \"GISO\",\r\n    \"funcion\": \"MantenimientoZonasSubzonasPrestacion\",\r\n    \"perfil\": \"CentralRT\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/agregarFuncionPerfil",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"agregarFuncionPerfil"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "altaFuncion",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"aplicacion\": \"GISO\",\r\n    \"funcion\": \"MantenimientoZonasSubzonasPrestacion\",\r\n    \"descripcionFuncion\": \"Mantenimiento de Zonas y Subzonas para la Prestación de Asistencias\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/altaFuncion",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"altaFuncion"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "eliminarFuncionEntorno",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "DELETE",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"aplicacion\": \"Hermes\",\r\n    \"funcion\": \"Prueba\",\r\n    \"entorno\": \"Empleado\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/eliminarFuncionEntorno",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"eliminarFuncionEntorno"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "eliminarFuncionAplicacion",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "DELETE",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"aplicacion\": \"Hermes\",\r\n    \"funcion\": \"Prueba\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/eliminarFuncionAplicacion",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"eliminarFuncionAplicacion"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "eliminarFuncionPerfil",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{access_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "DELETE",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"aplicacion\": \"Hermes\",\r\n    \"funcion\": \"Prueba\",\r\n    \"perfil\": \"Administrador\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{APIManagerIn}}/MSGestionFuncionesLDAP/eliminarFuncionPerfil",
+					"host": [
+						"{{APIManagerIn}}"
+					],
+					"path": [
+						"MSGestionFuncionesLDAP",
+						"eliminarFuncionPerfil"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"protocolProfileBehavior": {
+		
+	}
+}
