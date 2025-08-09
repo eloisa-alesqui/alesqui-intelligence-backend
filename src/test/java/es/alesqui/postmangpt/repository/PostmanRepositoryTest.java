@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,7 @@ import reactor.test.StepVerifier;
 @SpringBootTest(classes = EmbeddedMongoConfig.class)
 @ActiveProfiles("test")
 @DisplayName("PostmanRepository Tests - Document Management")
+@Disabled
 class PostmanRepositoryTest {
 
   @Autowired

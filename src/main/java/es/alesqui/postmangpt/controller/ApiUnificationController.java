@@ -1,6 +1,5 @@
 package es.alesqui.postmangpt.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -9,21 +8,23 @@ import es.alesqui.postmangpt.model.swagger.SwaggerDocument;
 import es.alesqui.postmangpt.model.unified.UnifiedApiDocument;
 import es.alesqui.postmangpt.service.PostmanService;
 import es.alesqui.postmangpt.service.SwaggerService;
+import es.alesqui.postmangpt.service.UnifiedApiService;
 import es.alesqui.postmangpt.service.unification.ApiUnificationService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/unification")
+@RequiredArgsConstructor
 public class ApiUnificationController {
 
-    @Autowired
-    private ApiUnificationService apiUnificationService;
-
-    @Autowired
-    private SwaggerService swaggerService;
-
-    @Autowired
-    private PostmanService postmanService;
+    private final ApiUnificationService apiUnificationService;
+    private final SwaggerService swaggerService;
+    private final PostmanService postmanService;
+    private final UnifiedApiService unifiedApiService;
 
     /**
      * Unifies Swagger and Postman documents by API name and saves the unified document.
@@ -51,6 +52,49 @@ public class ApiUnificationController {
                             });
                 })
                 .onErrorResume(e -> Mono.just(ResponseEntity.status(500).body("Unexpected error: " + e.getMessage())));
+    }
+    
+    /**
+     * Retrieves all Unified Api documents from the database.
+     * 
+     * @return a Flux containing all Unified Api documents
+     */
+    @GetMapping
+    public Flux<UnifiedApiDocument> findAll() {
+        log.info("Fetching all Unified Api documents...");
+        return unifiedApiService.findAll()
+                .doOnNext(document -> log.debug("Retrieved document: {}", document.getName()))
+                .doOnError(error -> log.error("Error fetching Unified Api documents", error));
+    }
+
+    /**
+     * Retrieves a Unified Api document by its unique identifier.
+     * 
+     * @param id the unique identifier of the document
+     * @return a Mono containing the Unified Api document if found, or a 404 response if not found
+     */
+    @GetMapping("/{id}")
+    public Mono<ResponseEntity<UnifiedApiDocument>> findById(@PathVariable String id) {
+        log.info("Fetching Unified Api document with ID: {}", id);
+        return unifiedApiService.findById(id)
+                .map(document -> ResponseEntity.ok(document))
+                .defaultIfEmpty(ResponseEntity.notFound().build())
+                .doOnError(error -> log.error("Error fetching document with ID: {}", id, error));
+    }
+
+    /**
+     * Retrieves a Unified Api document by its name.
+     * 
+     * @param name the name of the document
+     * @return a Mono containing the Unified Api document if found, or a 404 response if not found
+     */
+    @GetMapping("/by-name")
+    public Mono<ResponseEntity<UnifiedApiDocument>> findByName(@RequestParam String name) {
+        log.info("Fetching Unified Api document with name: {}", name);
+        return unifiedApiService.findByName(name)
+                .map(document -> ResponseEntity.ok(document))
+                .defaultIfEmpty(ResponseEntity.notFound().build())
+                .doOnError(error -> log.error("Error fetching document with name: {}", name, error));
     }
     
     private Mono<ResponseEntity<String>> unifyAndSave(SwaggerDocument swaggerDoc, PostmanDocument postmanDoc) {

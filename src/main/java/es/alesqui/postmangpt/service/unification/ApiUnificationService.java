@@ -1,6 +1,6 @@
 package es.alesqui.postmangpt.service.unification;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -90,9 +90,9 @@ public class ApiUnificationService {
      * @return a Mono of the saved UnifiedApiDocument
      */
     public Mono<UnifiedApiDocument> save(UnifiedApiDocument document) {
-        document.setUpdatedAt(LocalDateTime.now());
+        document.setUpdatedAt(Instant.now());
         if (document.getCreatedAt() == null) {
-            document.setCreatedAt(LocalDateTime.now());
+            document.setCreatedAt(Instant.now());
         }
 
         log.info("Saving collection: {}", document.getName());

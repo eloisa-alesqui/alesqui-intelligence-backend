@@ -262,14 +262,6 @@
     <logger name="org.springframework.ai.openai" level="INFO"/>
     <logger name="org.springframework.ai.vectorstore" level="INFO"/>
     
-    <!-- 🔍 Debug Logger for URL Extraction - Development/Default -->
-    <springProfile name="!test">
-        <logger name="es.alesqui.postmangpt.helper.PostmanEndpointExtractor" level="DEBUG" additivity="false">
-            <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="FILE"/>
-        </logger>
-    </springProfile>
-    
     <!-- 🔍 Debug Logger for URL Extraction - Test -->
     <springProfile name="test">
         <logger name="es.alesqui.postmangpt.service.unification.ApiUnificationService" level="DEBUG" additivity="false">

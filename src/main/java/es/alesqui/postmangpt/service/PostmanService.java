@@ -1,8 +1,6 @@
 package es.alesqui.postmangpt.service;
 
 import es.alesqui.postmangpt.config.properties.PostmanCollectionProperties;
-import es.alesqui.postmangpt.dto.EndpointInfo;
-import es.alesqui.postmangpt.helper.PostmanEndpointExtractor;
 import es.alesqui.postmangpt.model.postman.Collection;
 import es.alesqui.postmangpt.model.postman.Info;
 import es.alesqui.postmangpt.model.postman.PostmanDocument;
@@ -19,7 +17,6 @@ import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -34,7 +31,6 @@ public class PostmanService {
 
     private final PostmanRepository repository;
     private final ObjectMapper objectMapper;
-    private final PostmanEndpointExtractor endpointExtractor;
     private final PostmanCollectionProperties properties;
 
     /**
@@ -162,26 +158,6 @@ public class PostmanService {
                 .doOnError(error -> log.error("Error importing collection from JSON", error));
     }
 
-    /**
-     * Extracts endpoints from a Postman collection document.
-     * 
-     * @param collectionId the unique identifier of the collection
-     * @return a Mono of a list of EndpointInfo objects representing the endpoints
-     */
-    public Mono<List<EndpointInfo>> extractEndpoints(String collectionId) {
-        log.info("Extracting endpoints for collection ID: {}", collectionId);
-
-        return findById(collectionId)
-                .map(document -> {
-                    log.debug("Extracting endpoints from collection: {}", document.getName());
-                    return endpointExtractor.extractEndpoints(document.getCollection().getItem());
-                })
-                .doOnSuccess(endpoints -> log.info("Extracted {} endpoints for collection ID: {}", endpoints.size(), collectionId))
-                .doOnError(error -> log.error("Error extracting endpoints for collection ID: {}", collectionId, error));
-    }
-
-    
-    
     /**
      * Creates and saves a new PostmanDocument from a Collection.
      * 

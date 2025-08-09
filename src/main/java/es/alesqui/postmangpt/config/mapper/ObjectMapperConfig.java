@@ -51,7 +51,6 @@ public class ObjectMapperConfig {
     @Bean
     @Primary
     public ObjectMapper jsonObjectMapper() {
-        // Create standard ObjectMapper with default JSON configuration
     	ObjectMapper mapper = JsonMapper.builder()
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)

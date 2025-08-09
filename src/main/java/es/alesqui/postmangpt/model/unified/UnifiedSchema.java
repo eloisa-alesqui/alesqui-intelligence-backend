@@ -53,7 +53,6 @@ public class UnifiedSchema {
      */
     private Object defaultValue;
 
-    // References
     /**
      * A reference to another schema, typically in the format "#/components/schemas/SchemaName".
      */

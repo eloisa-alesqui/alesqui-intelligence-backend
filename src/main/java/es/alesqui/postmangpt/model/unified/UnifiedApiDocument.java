@@ -4,6 +4,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+
+import org.bson.types.ObjectId;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -11,7 +13,7 @@ import org.springframework.data.mongodb.core.mapping.Field;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -32,7 +34,7 @@ public class UnifiedApiDocument {
      * The unique identifier of the unified API document.
      */
     @Id
-    private String id;
+    private ObjectId id;
 
     /**
      * The name of the API specification.
@@ -142,7 +144,7 @@ public class UnifiedApiDocument {
     @Field("createdAt")
     @JsonProperty("createdAt")
     @Builder.Default
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private Instant createdAt = Instant.now();
 
     /**
      * The timestamp when this document was last updated.
@@ -151,7 +153,7 @@ public class UnifiedApiDocument {
     @Field("updatedAt")
     @JsonProperty("updatedAt")
     @Builder.Default
-    private LocalDateTime updatedAt = LocalDateTime.now();
+    private Instant updatedAt = Instant.now();
 
     /**
      * The user or entity that created this document.
@@ -175,4 +177,11 @@ public class UnifiedApiDocument {
     @JsonProperty("active")
     @Builder.Default
     private boolean active = true;
+    
+    /**
+     * Execution configuration for API calls
+     */
+    @Field("apiConfiguration")
+    @JsonProperty("apiConfiguration")
+    private ApiConfiguration apiConfiguration;
 }

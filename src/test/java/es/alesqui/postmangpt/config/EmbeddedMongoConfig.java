@@ -20,6 +20,6 @@ public class EmbeddedMongoConfig {
 
     @Bean
     public ReactiveMongoTemplate reactiveMongoTemplate(MongoClient mongoClient) {
-        return new ReactiveMongoTemplate(mongoClient, "postmangpt-test");
+        return new ReactiveMongoTemplate(mongoClient, "postmangpt");
     }
 }

@@ -14,7 +14,7 @@ import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
  * This class defines a custom MongoConverter bean to handle specific MongoDB mapping requirements.
  */
 @Configuration
-public class MongoConfig {
+public class MongoConfiguration {
 
     /**
      * Creates and configures a custom MongoConverter bean.

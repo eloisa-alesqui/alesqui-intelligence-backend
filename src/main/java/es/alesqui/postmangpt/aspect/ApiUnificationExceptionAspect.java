@@ -19,8 +19,7 @@ public class ApiUnificationExceptionAspect {
 	 * Advice that wraps methods annotated with @HandleApiException.
 	 */
 	@Around("@annotation(HandleApiException)")
-	public Object handleApiException(ProceedingJoinPoint joinPoint) throws Throwable { // Declaramos que puede lanzar
-																						// Throwable
+	public Object handleApiException(ProceedingJoinPoint joinPoint) throws Throwable { 																						
 		try {
 			// Proceed with the method execution
 			return joinPoint.proceed();
