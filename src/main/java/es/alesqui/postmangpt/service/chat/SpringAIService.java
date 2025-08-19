@@ -6,11 +6,28 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage.ToolResponse;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.AssistantMessage.ToolCall;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.DefaultToolCallingManager;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
+import es.alesqui.postmangpt.dto.chat.response.ChatWithReasoningResponse;
+import es.alesqui.postmangpt.service.chat.tools.ApiActionTools;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 
@@ -31,6 +48,8 @@ import java.util.stream.Collectors;
 public class SpringAIService {
 
     private final ChatClient chatClient;
+    private final ApiActionTools apiActionTools;
+    private final ReasoningFormatterService reasoningFormatterService;
     private final Scheduler boundedElasticScheduler;
     private final MeterRegistry meterRegistry;
     private final Map<String, List<Message>> conversationHistory = new ConcurrentHashMap<>();
@@ -216,6 +235,116 @@ public class SpringAIService {
             }
         });
     }
+    
+    /**
+     * Chat with tools support
+     * 
+     * @param systemPrompt Instructions for the AI model to define its behavior.
+     * @param userPrompt The user's message to be processed by the AI model.
+     * @param conversationId Unique identifier for the conversation to maintain its history.
+     * @param includeReasoning Whether to include reasoning in the response.
+     * @return A reactive Mono containing the AI model's ChatResponse and optional reasoning.
+     */
+    public Mono<ChatWithReasoningResponse> chatWithTools(String systemPrompt, String userPrompt, 
+                                                       String conversationId, boolean includeReasoning) {
+        
+        validateInputs(userPrompt);
+
+        return Mono.defer(() -> Mono.fromCallable(() -> {
+            log.debug("Processing chat with tools (enabled: {}) for conversation: {}", conversationId);
+            long startTime = System.currentTimeMillis();
+            
+            try {
+                ChatResponse chatResponse = null;
+                String reasoning = null;
+                List<Message> history = getOrCreateConversationHistory(conversationId);
+                Map<String, Object> toolContext = Map.of("conversationId", conversationId);
+                
+                if (includeReasoning) {
+                    ToolCallback[] toolCallbacks = ToolCallbacks.from(apiActionTools);
+                    ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
+                    ChatMemory chatMemory = MessageWindowChatMemory.builder().build();
+                    
+                    ChatOptions chatOptions = ToolCallingChatOptions.builder()
+                            .toolCallbacks(toolCallbacks)
+                            .internalToolExecutionEnabled(false)
+                            .build();
+                            
+                    Prompt prompt = new Prompt(
+                            List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt)),
+                            chatOptions);
+                    chatMemory.add(conversationId, prompt.getInstructions());
+                    
+                    Prompt promptWithMemory = new Prompt(chatMemory.get(conversationId), chatOptions);
+                    chatResponse = chatClient.prompt(promptWithMemory).toolContext(toolContext).call().chatResponse();
+                    chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+
+                    while (chatResponse.hasToolCalls()) {
+                        ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(promptWithMemory,
+                                chatResponse);
+                        chatMemory.add(conversationId, toolExecutionResult.conversationHistory()
+                            .get(toolExecutionResult.conversationHistory().size() - 1));
+                        promptWithMemory = new Prompt(chatMemory.get(conversationId), chatOptions);
+                        chatResponse = chatClient.prompt(promptWithMemory).toolContext(toolContext).call().chatResponse();
+                        chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+                    }
+
+                    history.add(new UserMessage(userPrompt));
+                    history.add(new AssistantMessage(chatResponse.getResult().getOutput().getText()));
+                    limitConversationHistory(history, 20);
+                    
+                    reasoning = generateReasoningNarrative(chatMemory.get(conversationId));
+                    
+                } else {
+                    chatResponse = chatClient
+                            .prompt()
+                            .system(systemPrompt)
+                            .user(userPrompt)
+                            .toolContext(toolContext)
+                            .tools(apiActionTools)
+                            .call()
+                            .chatResponse();
+                            
+                    history.add(new UserMessage(userPrompt));
+                    history.add(new AssistantMessage(chatResponse.getResult().getOutput().getText()));
+                    limitConversationHistory(history, 20);
+                }
+                
+                return new ChatWithReasoningResponse(chatResponse, reasoning);
+                
+            } catch (Exception e) {
+                log.error("Error processing chat with tools for conversation {}: {}", 
+                         conversationId, e.getMessage(), e);
+                throw new RuntimeException("Failed to process chat request with tools", e);
+            } finally {
+                long endTime = System.currentTimeMillis();
+                meterRegistry.timer("chat.with.tools.execution.time",
+                    "conversation_id", conversationId)
+                    .record(endTime - startTime, TimeUnit.MILLISECONDS);
+            }
+        }).subscribeOn(boundedElasticScheduler))
+        .flatMap(response -> {
+            if (response.getFormattedReasoning() != null) {
+                return reasoningFormatterService.formatReasoning(response.getFormattedReasoning())
+                        .map(formattedReasoning -> {
+                            response.setFormattedReasoning(formattedReasoning);
+                            return response;
+                        });
+            } else {
+                return Mono.just(response);
+            }
+        })
+        .timeout(Duration.ofSeconds(120))
+        .doOnSuccess(response -> {
+            log.info("Successfully processed chat with tools for conversation: {}", conversationId);
+            meterRegistry.counter("chat.with.tools.success").increment();
+        })
+        .doOnError(error -> {
+            log.error("Failed to process chat with tools for conversation {}: {}", 
+                     conversationId, error.getMessage());
+            meterRegistry.counter("chat.with.tools.error").increment();
+        });
+    }
 
     /**
      * Clears the conversation history for a given conversation ID.
@@ -298,5 +427,73 @@ public class SpringAIService {
                 meterRegistry.timer("testConnection.execution.time").record(endTime - startTime, TimeUnit.MILLISECONDS);
             }
         });
+    }
+    
+    /**
+     * Genera una narrativa de razonamiento a partir de una lista de mensajes
+     * 
+     * @param messages Lista de mensajes de la conversación
+     * @return String con la narrativa formateada
+     */
+    private String generateReasoningNarrative(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return "No hay mensajes disponibles para generar razonamiento.";
+        }
+        
+        StringBuilder narrative = new StringBuilder();
+        int stepCounter = 1;
+        
+        // Encabezado
+        narrative.append("🧠 **RAZONAMIENTO PASO A PASO**\n");
+        narrative.append("=".repeat(50)).append("\n\n");
+        
+        // Procesar cada mensaje
+        for (int i = 0; i < messages.size(); i++) {
+        	Message message = messages.get(i);
+            
+            switch (message.getMessageType()) {
+                case SYSTEM:
+                    SystemMessage sysMsg = (SystemMessage) message;
+                    narrative.append("📋 **Configuración inicial:**\n");
+                    narrative.append("   • Sistema: ").append(sysMsg.getText()).append("\n\n");
+                    break;
+                    
+                case USER:
+                    UserMessage userMsg = (UserMessage) message;
+                    narrative.append("❓ **Pregunta del usuario:**\n");
+                    narrative.append("   • \"").append(userMsg.getText()).append("\"\n\n");
+                    break;
+                    
+                case ASSISTANT:
+                    AssistantMessage aiMsg = (AssistantMessage) message;
+                    narrative.append("🤖 **Paso ").append(stepCounter).append("\n\n");
+
+                    if (aiMsg.getToolCalls() != null && !aiMsg.getToolCalls().isEmpty()) {
+                        narrative.append("🔧 **Herramientas solicitadas:**\n");
+                        for (ToolCall request : aiMsg.getToolCalls()) {
+                            narrative.append("   • ").append(request.name())
+                                   .append("(").append(request.arguments()).append(")\n");
+                        }
+                        narrative.append("\n");
+                    }
+                    stepCounter++;
+                    break;
+                    
+                case TOOL:
+                    ToolResponseMessage toolMsg = (ToolResponseMessage) message;
+                    
+                    if (toolMsg.getResponses() != null && !toolMsg.getResponses().isEmpty()) {
+                        narrative.append("🔧 **Resultado de herramientas:**\n");
+                        for (ToolResponse response : toolMsg.getResponses()) {
+                            narrative.append("   • ").append(response.name()).append("\n\n")
+                                   .append("Resultado: ").append(response.responseData()).append(")\n");
+                        }
+                        narrative.append("\n");
+                    }
+                    break;
+            }
+        }
+
+        return narrative.toString();
     }
 }

@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
+import es.alesqui.postmangpt.config.ChatConfiguration;
 import es.alesqui.postmangpt.dto.chat.response.ClassificationResponse;
 import es.alesqui.postmangpt.model.unified.UnifiedApiDocument;
 import es.alesqui.postmangpt.model.unified.UnifiedEndpoint;
@@ -25,13 +26,15 @@ public class DynamicApiQueryClassifierService {
 
 	private final SpringAIService springAIService;
 	private final UnifiedApiService unifiedApiService;
+	private final ChatConfiguration chatConfig;
+	
 	private String cachedClassificationPrompt;
 	private Instant lastPromptUpdate;
 
 	/**
 	 * Classify query based on available APIs
 	 */
-	public Mono<ClassificationResponse> classifyQuery(String query, String conversationId) {
+	Mono<ClassificationResponse> classifyQuery(String query, String conversationId) {
 	  Instant startTime = Instant.now();
 	  
 	  return getOrBuildClassificationPrompt(conversationId)
@@ -44,45 +47,35 @@ public class DynamicApiQueryClassifierService {
 	                  "Query requires API data access", 
 	                  0.8, 
 	                  conversationId)
-	                  .withProcessingTime(processingTime)
-	                  .withMethod("AI_CLASSIFICATION");
+	                  .withProcessingTime(processingTime);
 	          } else {
 	              return ClassificationResponse.directAnswer(
 	                  "Query can be answered directly", 
 	                  0.8, 
 	                  conversationId)
-	                  .withProcessingTime(processingTime)
-	                  .withMethod("AI_CLASSIFICATION");
+	                  .withProcessingTime(processingTime);
 	          }
 	      })
 	      .doOnNext(response -> 
 	          log.debug("Query '{}' classified as data query: {} with confidence: {}", 
 	                   query, response.shouldUseReAct(), response.getConfidence()));
 	}
-	
-	/**
-	 * Classify query based on available APIs
-	 */
-	public Mono<Boolean> isDataQuery(String query, String conversationId) {
-		return getOrBuildClassificationPrompt(conversationId)
-				.flatMap(prompt -> classifyWithAI(query, prompt, conversationId))
-				.doOnNext(isDataQuery -> log.debug("Query '{}' classified as data query: {}", query, isDataQuery));
-	}
 
 	/**
 	 * Get cached prompt or build new one if APIs changed
 	 */
 	private Mono<String> getOrBuildClassificationPrompt(String conversationId) {
-		// Cache prompt for 5 minutes to avoid rebuilding on every query
 		if (cachedClassificationPrompt != null && lastPromptUpdate != null
-				&& lastPromptUpdate.isAfter(Instant.now().minus(5, ChronoUnit.MINUTES))) {
+				&& lastPromptUpdate.isAfter(Instant.now().minus(
+						chatConfig.getPromptCacheTime().toMinutes(), ChronoUnit.MINUTES))) {
 			return Mono.just(cachedClassificationPrompt);
 		}
 
 		return buildDynamicClassificationPrompt(conversationId).doOnNext(prompt -> {
 			cachedClassificationPrompt = prompt;
 			lastPromptUpdate = Instant.now();
-			log.debug("Classification prompt updated");
+			log.debug("Classification prompt updated (cache time: {})", 
+	                  chatConfig.getPromptCacheTime());
 		});
 	}
 

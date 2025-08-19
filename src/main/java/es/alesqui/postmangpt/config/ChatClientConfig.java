@@ -6,6 +6,7 @@ import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -62,6 +63,7 @@ public class ChatClientConfig {
      * @return a configured OpenAiChatModel instance
      */
     @Bean
+    @Primary
     public OpenAiChatModel openAiChatModel(OpenAiApi openAiApi) {
         OpenAiChatModel openAiChatModel = OpenAiChatModel.builder()
             .openAiApi(openAiApi)
@@ -81,9 +83,11 @@ public class ChatClientConfig {
      * @return a configured ChatClient instance ready for use in the application
      */
     @Bean
+    @Primary
     public ChatClient chatClient(OpenAiChatModel chatModel) {
         ChatClient client = ChatClient.builder(chatModel).build();
-        log.info("✅ ChatClient created with custom OpenAiChatModel");
+        log.info("✅ Basic ChatClient created");
         return client;
     }
+
 }

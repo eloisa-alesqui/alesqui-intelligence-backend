@@ -47,11 +47,6 @@ public class ClassificationResponse {
 	private Long classificationTimeMs;
 
 	/**
-	 * Model or method used for classification.
-	 */
-	private String classificationMethod;
-
-	/**
 	 * Creates a classification response indicating data query.
 	 *
 	 * @param reasoning      explanation for the classification
@@ -99,27 +94,6 @@ public class ClassificationResponse {
 	public ClassificationResponse withProcessingTime(long timeMs) {
 		this.classificationTimeMs = timeMs;
 		return this;
-	}
-
-	/**
-	 * Sets the classification method used.
-	 *
-	 * @param method name of the classification method
-	 * @return this response for method chaining
-	 */
-	public ClassificationResponse withMethod(String method) {
-		this.classificationMethod = method;
-		return this;
-	}
-
-	/**
-	 * Checks if the classification confidence is above threshold.
-	 *
-	 * @param threshold minimum confidence required
-	 * @return true if confidence exceeds threshold
-	 */
-	public boolean isConfident(double threshold) {
-		return confidence >= threshold;
 	}
 
 	/**

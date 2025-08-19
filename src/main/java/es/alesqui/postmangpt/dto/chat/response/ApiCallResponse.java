@@ -99,6 +99,18 @@ public class ApiCallResponse {
 		return ApiCallResponse.builder().success(false).errorMessage(errorMessage).statusCode(statusCode)
 				.conversationId(conversationId).timestamp(Instant.now()).build();
 	}
+	
+	/**
+	 * Creates a failed API call response.
+	 *
+	 * @param errorMessage   description of the error
+	 * @param statusCode     HTTP status code
+	 * @return ApiCallResponse for failed call
+	 */
+	public static ApiCallResponse failure(String errorMessage, int statusCode) {
+		return ApiCallResponse.builder().success(false).errorMessage(errorMessage).statusCode(statusCode)
+				.timestamp(Instant.now()).build();
+	}
 
 	/**
 	 * Creates an API call response for connection timeout.
@@ -123,6 +135,19 @@ public class ApiCallResponse {
 		this.apiName = apiName;
 		this.endpoint = endpoint;
 		this.httpMethod = httpMethod;
+		return this;
+	}
+	
+	/**
+	 * Sets the API call details.
+	 *
+	 * @param apiName    name of the API
+	 * @param endpoint   endpoint path
+	 * @return this response for method chaining
+	 */
+	public ApiCallResponse withApiDetails(String apiName, String endpoint) {
+		this.apiName = apiName;
+		this.endpoint = endpoint;
 		return this;
 	}
 
