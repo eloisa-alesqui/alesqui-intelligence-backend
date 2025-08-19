@@ -8,10 +8,10 @@
 		<version>3.5.0</version>
 		<relativePath /> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>es.alesqui</groupId>
-	<artifactId>postman-gpt</artifactId>
+	<groupId>es.alesqui.intelligence</groupId>
+	<artifactId>alesqui-intelligence</artifactId>
 	<version>1.0.0</version>
-	<name>PostmanGPT</name>
+	<name>Alesqui Intelligence</name>
 	<description>Enterprise Self-Hosted AI API Assistant</description>
 	<properties>
 		<java.version>17</java.version>

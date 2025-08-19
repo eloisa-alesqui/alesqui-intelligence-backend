@@ -1,336 +1,391 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 📝 PostmanGPT Logback Configuration -->
+<!-- 📝 Alesqui Intelligence Logback Configuration -->
 <configuration>
-    
-    <!-- 🎨 Color Configuration -->
-    <conversionRule conversionWord="clr" converterClass="org.springframework.boot.logging.logback.ColorConverter" />
-    <conversionRule conversionWord="wex" converterClass="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter" />
-    <conversionRule conversionWord="wEx" converterClass="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter" />
-    
-    <!-- 🔧 Properties -->
-    <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="postmangpt"/>
-    <springProperty scope="context" name="LOG_LEVEL" source="logging.level.es.alesqui.postmangpt" defaultValue="INFO"/>
-    <springProperty scope="context" name="LOG_PATH" source="logging.file.path" defaultValue="logs"/>
-    <springProperty scope="context" name="LOG_FILE" source="logging.file.name" defaultValue="${LOG_PATH}/${APP_NAME}.log"/>
-    
-    <!-- 📊 Console Appender for Development -->
-    <springProfile name="!prod &amp; !test">
-        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-                <pattern>
-                    %clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr([%thread]){magenta} %clr(%-5level){highlight} %clr([%X{traceId:-},%X{spanId:-}]){yellow} %clr(%logger{36}){cyan} %clr(-){faint} %m%n%wEx
-                </pattern>
-            </encoder>
-        </appender>
-    </springProfile>
-    
-    <!-- 📊 Console Appender for Production -->
-    <springProfile name="prod">
-        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-                <pattern>
-                    %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %m%n
-                </pattern>
-            </encoder>
-        </appender>
-    </springProfile>
-    
-    <!-- 🧪 Test Console Appender -->
-    <springProfile name="test">
-        <appender name="TEST_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-                <pattern>
-                    %clr(%d{HH:mm:ss.SSS}){faint} %clr([%thread]){magenta} %clr(%-5level){highlight} %clr(%logger{15}){cyan} %clr(-){faint} %m%n
-                </pattern>
-            </encoder>
-        </appender>
-    </springProfile>
-    
-    <!-- 📁 File Appender -->
-    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_FILE}</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>
-                %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %m%n
-            </pattern>
-        </encoder>
-        
-        <!-- 🔄 Rolling Policy -->
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/${APP_NAME}-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>100MB</maxFileSize>
-            <maxHistory>30</maxHistory>
-            <totalSizeCap>10GB</totalSizeCap>
-            <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
-    </appender>
-    
-    <!-- 🚨 Error File Appender -->
-    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
-        <filter class="ch.qos.logback.classic.filter.LevelFilter">
-            <level>ERROR</level>
-            <onMatch>ACCEPT</onMatch>
-            <onMismatch>DENY</onMismatch>
-        </filter>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>
-                %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %m%n%wEx
-            </pattern>
-        </encoder>
-        
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/${APP_NAME}-error-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>50MB</maxFileSize>
-            <maxHistory>90</maxHistory>
-            <totalSizeCap>5GB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-    
-    <!-- 📊 Metrics File Appender -->
-    <appender name="METRICS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/${APP_NAME}-metrics.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>
-                %d{yyyy-MM-dd HH:mm:ss.SSS} - %m%n
-            </pattern>
-        </encoder>
-        
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/${APP_NAME}-metrics-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>50MB</maxFileSize>
-            <maxHistory>7</maxHistory>
-            <totalSizeCap>1GB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-    
-    <!-- 🔍 Audit File Appender -->
-    <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/${APP_NAME}-audit.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>
-                %d{yyyy-MM-dd HH:mm:ss.SSS} [%X{userId:-}] [%X{sessionId:-}] [%X{requestId:-}] - %m%n
-            </pattern>
-        </encoder>
-        
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/${APP_NAME}-audit-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>100MB</maxFileSize>
-            <maxHistory>365</maxHistory>
-            <totalSizeCap>50GB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-    
-    <!-- 🔄 Async Appenders for Production Performance -->
-    <springProfile name="prod">
-        <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
-            <appender-ref ref="FILE"/>
-            <queueSize>1024</queueSize>
-            <discardingThreshold>0</discardingThreshold>
-            <includeCallerData>false</includeCallerData>
-            <neverBlock>true</neverBlock>
-        </appender>
-        
-        <appender name="ASYNC_ERROR" class="ch.qos.logback.classic.AsyncAppender">
-            <appender-ref ref="ERROR_FILE"/>
-            <queueSize>512</queueSize>
-            <discardingThreshold>0</discardingThreshold>
-            <includeCallerData>true</includeCallerData>
-            <neverBlock>false</neverBlock>
-        </appender>
-    </springProfile>
-    
-    <!-- 📊 JSON Appender for Production -->
-    <springProfile name="prod">
-        <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-            <file>${LOG_PATH}/${APP_NAME}-json.log</file>
-            <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
-                <providers>
-                    <timestamp/>
-                    <logLevel/>
-                    <loggerName/>
-                    <message/>
-                    <mdc/>
-                    <stackTrace/>
-                    <pattern>
-                        <pattern>
-                            {
-                              "app": "${APP_NAME}",
-                              "traceId": "%X{traceId:-}",
-                              "spanId": "%X{spanId:-}",
-                              "userId": "%X{userId:-}",
-                              "sessionId": "%X{sessionId:-}",
-                              "requestId": "%X{requestId:-}"
-                            }
-                        </pattern>
-                    </pattern>
-                </providers>
-            </encoder>
-            
-            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-                <fileNamePattern>${LOG_PATH}/${APP_NAME}-json-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-                <maxFileSize>200MB</maxFileSize>
-                <maxHistory>30</maxHistory>
-                <totalSizeCap>20GB</totalSizeCap>
-            </rollingPolicy>
-        </appender>
-    </springProfile>
-    
-    <!-- 🎯 Logger Configurations -->
-    
-    <!-- Your Application - Development/Default -->
-    <springProfile name="!test &amp; !prod">
-        <logger name="es.alesqui.postmangpt" level="${LOG_LEVEL}" additivity="false">
-            <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="FILE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Your Application - Test -->
-    <springProfile name="test">
-        <logger name="es.alesqui.postmangpt" level="${LOG_LEVEL}" additivity="false">
-            <appender-ref ref="TEST_CONSOLE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Your Application - Production -->
-    <springProfile name="prod">
-        <logger name="es.alesqui.postmangpt" level="${LOG_LEVEL}" additivity="false">
-            <appender-ref ref="ASYNC_FILE"/>
-            <appender-ref ref="JSON_FILE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Audit Logger - Non-test environments -->
-    <springProfile name="!test">
-        <logger name="es.alesqui.postmangpt.audit" level="INFO" additivity="false">
-            <appender-ref ref="AUDIT_FILE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Metrics Logger - Non-test environments -->
-    <springProfile name="!test">
-        <logger name="es.alesqui.postmangpt.metrics" level="INFO" additivity="false">
-            <appender-ref ref="METRICS_FILE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Security Logger - Development/Default -->
-    <springProfile name="!test &amp; !prod">
-        <logger name="es.alesqui.postmangpt.security" level="INFO" additivity="false">
-            <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="AUDIT_FILE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Security Logger - Production -->
-    <springProfile name="prod">
-        <logger name="es.alesqui.postmangpt.security" level="INFO" additivity="false">
-            <appender-ref ref="JSON_FILE"/>
-            <appender-ref ref="AUDIT_FILE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Spring Framework -->
-    <logger name="org.springframework" level="WARN"/>
-    <logger name="org.springframework.security" level="WARN"/>
-    <logger name="org.springframework.web" level="WARN"/>
-    <logger name="org.springframework.data.mongodb" level="WARN"/>
-    <logger name="org.springframework.ai" level="INFO"/>
-    <logger name="org.springframework.cache" level="WARN"/>
-    <logger name="org.springframework.boot.actuate" level="INFO"/>
-    
-    <!-- MongoDB -->
-    <logger name="org.mongodb.driver" level="WARN"/>
-    <logger name="org.mongodb.driver.connection" level="WARN"/>
-    <logger name="org.mongodb.driver.management" level="WARN"/>
-    <logger name="org.mongodb.driver.cluster" level="WARN"/>
-    <logger name="org.mongodb.driver.protocol.insert" level="WARN"/>
-    <logger name="org.mongodb.driver.protocol.query" level="WARN"/>
-    <logger name="org.mongodb.driver.protocol.update" level="WARN"/>
-    
-    <!-- Redis -->
-    <logger name="io.lettuce.core" level="WARN"/>
-    <logger name="org.springframework.data.redis" level="WARN"/>
-    
-    <!-- Reactor Netty -->
-    <logger name="reactor.netty" level="WARN"/>
-    <logger name="reactor.netty.http.server" level="WARN"/>
-    <logger name="reactor.netty.resources" level="WARN"/>
-    
-    <!-- AI Libraries -->
-    <logger name="org.springframework.ai.openai" level="INFO"/>
-    <logger name="org.springframework.ai.vectorstore" level="INFO"/>
-    
-    <!-- 🔍 Debug Logger for URL Extraction - Test -->
-    <springProfile name="test">
-        <logger name="es.alesqui.postmangpt.service.unification.ApiUnificationService" level="DEBUG" additivity="false">
-            <appender-ref ref="TEST_CONSOLE"/>
-        </logger>
-    </springProfile>
-      
-    <!-- Test Libraries -->
-    <springProfile name="test">
-        <logger name="org.springframework.test" level="INFO"/>
-        <logger name="org.springframework.boot.test" level="INFO"/>
-        <logger name="org.testcontainers" level="WARN"/>
-        <logger name="com.github.tomakehurst.wiremock" level="WARN"/>
-    </springProfile>
-    
-    <!-- Production Specific -->
-    <springProfile name="prod">
-        <!-- More restrictive logging in production -->
-        <logger name="org.springframework" level="ERROR"/>
-        <logger name="org.mongodb.driver" level="ERROR"/>
-        <logger name="reactor.netty" level="ERROR"/>
-        
-        <!-- Performance monitoring -->
-        <logger name="es.alesqui.postmangpt.performance" level="INFO" additivity="false">
-            <appender-ref ref="METRICS_FILE"/>
-            <appender-ref ref="JSON_FILE"/>
-        </logger>
-        
-        <!-- Slow query logging -->
-        <logger name="es.alesqui.postmangpt.slowquery" level="WARN" additivity="false">
-            <appender-ref ref="ASYNC_ERROR"/>
-            <appender-ref ref="JSON_FILE"/>
-        </logger>
-    </springProfile>
-    
-    <!-- Development Specific -->
-    <springProfile name="dev">
-        <!-- More verbose logging in development -->
-        <logger name="es.alesqui.postmangpt.controller" level="DEBUG"/>
-        <logger name="es.alesqui.postmangpt.service" level="DEBUG"/>
-        <logger name="es.alesqui.postmangpt.repository" level="DEBUG"/>
-        <logger name="org.springframework.web.reactive" level="DEBUG"/>
-        <logger name="org.springframework.data.mongodb.core" level="DEBUG"/>
-    </springProfile>
-    
-    <!-- 🎯 Root Logger - Development/Default -->
-    <springProfile name="!test &amp; !prod">
-        <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="FILE"/>
-            <appender-ref ref="ERROR_FILE"/>
-        </root>
-    </springProfile>
-    
-    <!-- 🎯 Root Logger - Test -->
-    <springProfile name="test">
-        <root level="INFO">
-            <appender-ref ref="TEST_CONSOLE"/>
-        </root>
-    </springProfile>
-    
-    <!-- 🎯 Root Logger - Production -->
-    <springProfile name="prod">
-        <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ASYNC_FILE"/>
-            <appender-ref ref="ASYNC_ERROR"/>
-            <appender-ref ref="JSON_FILE"/>
-        </root>
-    </springProfile>
-    
+
+	<!-- 🎨 Color Configuration -->
+	<conversionRule conversionWord="clr"
+		converterClass="org.springframework.boot.logging.logback.ColorConverter" />
+	<conversionRule conversionWord="wex"
+		converterClass="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter" />
+	<conversionRule conversionWord="wEx"
+		converterClass="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter" />
+
+	<!-- 🔧 Properties -->
+	<springProperty scope="context" name="APP_NAME"
+		source="spring.application.name" defaultValue="alesqui-intelligence" />
+	<springProperty scope="context" name="LOG_LEVEL"
+		source="logging.level.es.alesqui.intelligence" defaultValue="INFO" />
+	<springProperty scope="context" name="LOG_PATH"
+		source="logging.file.path" defaultValue="logs" />
+	<springProperty scope="context" name="LOG_FILE"
+		source="logging.file.name" defaultValue="${LOG_PATH}/${APP_NAME}.log" />
+
+	<!-- 📊 Console Appender for Development -->
+	<springProfile name="!prod &amp; !test">
+		<appender name="CONSOLE"
+			class="ch.qos.logback.core.ConsoleAppender">
+			<encoder
+				class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+				<pattern>
+					%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr([%thread]){magenta}
+					%clr(%-5level){highlight}
+					%clr([%X{traceId:-},%X{spanId:-}]){yellow} %clr(%logger{36}){cyan}
+					%clr(-){faint} %m%n%wEx
+				</pattern>
+			</encoder>
+		</appender>
+	</springProfile>
+
+	<!-- 📊 Console Appender for Production -->
+	<springProfile name="prod">
+		<appender name="CONSOLE"
+			class="ch.qos.logback.core.ConsoleAppender">
+			<encoder
+				class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+				<pattern>
+					%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}]
+					%logger{36} - %m%n
+				</pattern>
+			</encoder>
+		</appender>
+	</springProfile>
+
+	<!-- 🧪 Test Console Appender -->
+	<springProfile name="test">
+		<appender name="TEST_CONSOLE"
+			class="ch.qos.logback.core.ConsoleAppender">
+			<encoder
+				class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+				<pattern>
+					%clr(%d{HH:mm:ss.SSS}){faint} %clr([%thread]){magenta} %clr(%-5level){highlight}
+					%clr(%logger{15}){cyan} %clr(-){faint} %m%n
+				</pattern>
+			</encoder>
+		</appender>
+	</springProfile>
+
+	<!-- 📁 File Appender -->
+	<appender name="FILE"
+		class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOG_FILE}</file>
+		<encoder
+			class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+			<pattern>
+				%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}]
+				%logger{36} - %m%n
+			</pattern>
+		</encoder>
+
+		<!-- 🔄 Rolling Policy -->
+		<rollingPolicy
+			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<fileNamePattern>${LOG_PATH}/${APP_NAME}-%d{yyyy-MM-dd}.%i.log.gz
+			</fileNamePattern>
+			<maxFileSize>100MB</maxFileSize>
+			<maxHistory>30</maxHistory>
+			<totalSizeCap>10GB</totalSizeCap>
+			<cleanHistoryOnStart>true</cleanHistoryOnStart>
+		</rollingPolicy>
+	</appender>
+
+	<!-- 🚨 Error File Appender -->
+	<appender name="ERROR_FILE"
+		class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOG_PATH}/${APP_NAME}-error.log</file>
+		<filter class="ch.qos.logback.classic.filter.LevelFilter">
+			<level>ERROR</level>
+			<onMatch>ACCEPT</onMatch>
+			<onMismatch>DENY</onMismatch>
+		</filter>
+		<encoder
+			class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+			<pattern>
+				%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}]
+				%logger{36} - %m%n%wEx
+			</pattern>
+		</encoder>
+
+		<rollingPolicy
+			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<fileNamePattern>${LOG_PATH}/${APP_NAME}-error-%d{yyyy-MM-dd}.%i.log.gz
+			</fileNamePattern>
+			<maxFileSize>50MB</maxFileSize>
+			<maxHistory>90</maxHistory>
+			<totalSizeCap>5GB</totalSizeCap>
+		</rollingPolicy>
+	</appender>
+
+	<!-- 📊 Metrics File Appender -->
+	<appender name="METRICS_FILE"
+		class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOG_PATH}/${APP_NAME}-metrics.log</file>
+		<encoder
+			class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+			<pattern>
+				%d{yyyy-MM-dd HH:mm:ss.SSS} - %m%n
+			</pattern>
+		</encoder>
+
+		<rollingPolicy
+			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<fileNamePattern>${LOG_PATH}/${APP_NAME}-metrics-%d{yyyy-MM-dd}.%i.log.gz
+			</fileNamePattern>
+			<maxFileSize>50MB</maxFileSize>
+			<maxHistory>7</maxHistory>
+			<totalSizeCap>1GB</totalSizeCap>
+		</rollingPolicy>
+	</appender>
+
+	<!-- 🔍 Audit File Appender -->
+	<appender name="AUDIT_FILE"
+		class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOG_PATH}/${APP_NAME}-audit.log</file>
+		<encoder
+			class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+			<pattern>
+				%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{userId:-}] [%X{sessionId:-}] [%X{requestId:-}] -
+				%m%n
+			</pattern>
+		</encoder>
+
+		<rollingPolicy
+			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<fileNamePattern>${LOG_PATH}/${APP_NAME}-audit-%d{yyyy-MM-dd}.%i.log.gz
+			</fileNamePattern>
+			<maxFileSize>100MB</maxFileSize>
+			<maxHistory>365</maxHistory>
+			<totalSizeCap>50GB</totalSizeCap>
+		</rollingPolicy>
+	</appender>
+
+	<!-- 🔄 Async Appenders for Production Performance -->
+	<springProfile name="prod">
+		<appender name="ASYNC_FILE"
+			class="ch.qos.logback.classic.AsyncAppender">
+			<appender-ref ref="FILE" />
+			<queueSize>1024</queueSize>
+			<discardingThreshold>0</discardingThreshold>
+			<includeCallerData>false</includeCallerData>
+			<neverBlock>true</neverBlock>
+		</appender>
+
+		<appender name="ASYNC_ERROR"
+			class="ch.qos.logback.classic.AsyncAppender">
+			<appender-ref ref="ERROR_FILE" />
+			<queueSize>512</queueSize>
+			<discardingThreshold>0</discardingThreshold>
+			<includeCallerData>true</includeCallerData>
+			<neverBlock>false</neverBlock>
+		</appender>
+	</springProfile>
+
+	<!-- 📊 JSON Appender for Production -->
+	<springProfile name="prod">
+		<appender name="JSON_FILE"
+			class="ch.qos.logback.core.rolling.RollingFileAppender">
+			<file>${LOG_PATH}/${APP_NAME}-json.log</file>
+			<encoder
+				class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+				<providers>
+					<timestamp />
+					<logLevel />
+					<loggerName />
+					<message />
+					<mdc />
+					<stackTrace />
+					<pattern>
+						<pattern>
+							{
+							"app": "${APP_NAME}",
+							"traceId": "%X{traceId:-}",
+							"spanId": "%X{spanId:-}",
+							"userId": "%X{userId:-}",
+							"sessionId": "%X{sessionId:-}",
+							"requestId": "%X{requestId:-}"
+							}
+						</pattern>
+					</pattern>
+				</providers>
+			</encoder>
+
+			<rollingPolicy
+				class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+				<fileNamePattern>${LOG_PATH}/${APP_NAME}-json-%d{yyyy-MM-dd}.%i.log.gz
+				</fileNamePattern>
+				<maxFileSize>200MB</maxFileSize>
+				<maxHistory>30</maxHistory>
+				<totalSizeCap>20GB</totalSizeCap>
+			</rollingPolicy>
+		</appender>
+	</springProfile>
+
+	<!-- 🎯 Logger Configurations -->
+
+	<!-- Your Application - Development/Default -->
+	<springProfile name="!test &amp; !prod">
+		<logger name="es.alesqui.intelligence" level="${LOG_LEVEL}"
+			additivity="false">
+			<appender-ref ref="CONSOLE" />
+			<appender-ref ref="FILE" />
+		</logger>
+	</springProfile>
+
+	<!-- Your Application - Test -->
+	<springProfile name="test">
+		<logger name="es.alesqui.intelligence" level="${LOG_LEVEL}"
+			additivity="false">
+			<appender-ref ref="TEST_CONSOLE" />
+		</logger>
+	</springProfile>
+
+	<!-- Your Application - Production -->
+	<springProfile name="prod">
+		<logger name="es.alesqui.intelligence" level="${LOG_LEVEL}"
+			additivity="false">
+			<appender-ref ref="ASYNC_FILE" />
+			<appender-ref ref="JSON_FILE" />
+		</logger>
+	</springProfile>
+
+	<!-- Audit Logger - Non-test environments -->
+	<springProfile name="!test">
+		<logger name="es.alesqui.intelligence.audit" level="INFO"
+			additivity="false">
+			<appender-ref ref="AUDIT_FILE" />
+		</logger>
+	</springProfile>
+
+	<!-- Metrics Logger - Non-test environments -->
+	<springProfile name="!test">
+		<logger name="es.alesqui.intelligence.metrics" level="INFO"
+			additivity="false">
+			<appender-ref ref="METRICS_FILE" />
+		</logger>
+	</springProfile>
+
+	<!-- Security Logger - Development/Default -->
+	<springProfile name="!test &amp; !prod">
+		<logger name="es.alesqui.intelligence.security" level="INFO"
+			additivity="false">
+			<appender-ref ref="CONSOLE" />
+			<appender-ref ref="AUDIT_FILE" />
+		</logger>
+	</springProfile>
+
+	<!-- Security Logger - Production -->
+	<springProfile name="prod">
+		<logger name="es.alesqui.intelligence.security" level="INFO"
+			additivity="false">
+			<appender-ref ref="JSON_FILE" />
+			<appender-ref ref="AUDIT_FILE" />
+		</logger>
+	</springProfile>
+
+	<!-- Spring Framework -->
+	<logger name="org.springframework" level="WARN" />
+	<logger name="org.springframework.security" level="WARN" />
+	<logger name="org.springframework.web" level="WARN" />
+	<logger name="org.springframework.data.mongodb" level="WARN" />
+	<logger name="org.springframework.ai" level="INFO" />
+	<logger name="org.springframework.cache" level="WARN" />
+	<logger name="org.springframework.boot.actuate" level="INFO" />
+
+	<!-- MongoDB -->
+	<logger name="org.mongodb.driver" level="WARN" />
+	<logger name="org.mongodb.driver.connection" level="WARN" />
+	<logger name="org.mongodb.driver.management" level="WARN" />
+	<logger name="org.mongodb.driver.cluster" level="WARN" />
+	<logger name="org.mongodb.driver.protocol.insert" level="WARN" />
+	<logger name="org.mongodb.driver.protocol.query" level="WARN" />
+	<logger name="org.mongodb.driver.protocol.update" level="WARN" />
+
+	<!-- Redis -->
+	<logger name="io.lettuce.core" level="WARN" />
+	<logger name="org.springframework.data.redis" level="WARN" />
+
+	<!-- Reactor Netty -->
+	<logger name="reactor.netty" level="WARN" />
+	<logger name="reactor.netty.http.server" level="WARN" />
+	<logger name="reactor.netty.resources" level="WARN" />
+
+	<!-- AI Libraries -->
+	<logger name="org.springframework.ai.openai" level="INFO" />
+	<logger name="org.springframework.ai.vectorstore" level="INFO" />
+
+	<!-- 🔍 Debug Logger for URL Extraction - Test -->
+	<springProfile name="test">
+		<logger
+			name="es.alesqui.intelligence.service.unification.ApiUnificationService"
+			level="DEBUG" additivity="false">
+			<appender-ref ref="TEST_CONSOLE" />
+		</logger>
+	</springProfile>
+
+	<!-- Test Libraries -->
+	<springProfile name="test">
+		<logger name="org.springframework.test" level="INFO" />
+		<logger name="org.springframework.boot.test" level="INFO" />
+		<logger name="org.testcontainers" level="WARN" />
+		<logger name="com.github.tomakehurst.wiremock" level="WARN" />
+	</springProfile>
+
+	<!-- Production Specific -->
+	<springProfile name="prod">
+		<!-- More restrictive logging in production -->
+		<logger name="org.springframework" level="ERROR" />
+		<logger name="org.mongodb.driver" level="ERROR" />
+		<logger name="reactor.netty" level="ERROR" />
+
+		<!-- Performance monitoring -->
+		<logger name="es.alesqui.intelligence.performance" level="INFO"
+			additivity="false">
+			<appender-ref ref="METRICS_FILE" />
+			<appender-ref ref="JSON_FILE" />
+		</logger>
+
+		<!-- Slow query logging -->
+		<logger name="es.alesqui.intelligence.slowquery" level="WARN"
+			additivity="false">
+			<appender-ref ref="ASYNC_ERROR" />
+			<appender-ref ref="JSON_FILE" />
+		</logger>
+	</springProfile>
+
+	<!-- Development Specific -->
+	<springProfile name="dev">
+		<!-- More verbose logging in development -->
+		<logger name="es.alesqui.intelligence.controller" level="DEBUG" />
+		<logger name="es.alesqui.intelligence.service" level="DEBUG" />
+		<logger name="es.alesqui.intelligence.repository" level="DEBUG" />
+		<logger name="org.springframework.web.reactive" level="DEBUG" />
+		<logger name="org.springframework.data.mongodb.core"
+			level="DEBUG" />
+	</springProfile>
+
+	<!-- 🎯 Root Logger - Development/Default -->
+	<springProfile name="!test &amp; !prod">
+		<root level="INFO">
+			<appender-ref ref="CONSOLE" />
+			<appender-ref ref="FILE" />
+			<appender-ref ref="ERROR_FILE" />
+		</root>
+	</springProfile>
+
+	<!-- 🎯 Root Logger - Test -->
+	<springProfile name="test">
+		<root level="INFO">
+			<appender-ref ref="TEST_CONSOLE" />
+		</root>
+	</springProfile>
+
+	<!-- 🎯 Root Logger - Production -->
+	<springProfile name="prod">
+		<root level="INFO">
+			<appender-ref ref="CONSOLE" />
+			<appender-ref ref="ASYNC_FILE" />
+			<appender-ref ref="ASYNC_ERROR" />
+			<appender-ref ref="JSON_FILE" />
+		</root>
+	</springProfile>
+
 </configuration>
