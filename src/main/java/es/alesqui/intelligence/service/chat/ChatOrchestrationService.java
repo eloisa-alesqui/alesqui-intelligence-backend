@@ -111,6 +111,12 @@ public class ChatOrchestrationService {
             - listApis(): Get all available APIs
             - listEndpoints(apiName): Get endpoints for a specific API  
             - callApi(apiName, endpoint, parametersJson): Call an API endpoint
+            - createExcelFile(jsonData, filename): Creates an Excel file from JSON data and returns a download link.
+            
+            **Workflow for creating files:**
+            1. First, use other tools like 'listEndpoints' to gather the data the user wants.
+            2. Second, structure this data into a valid JSON array format.
+            3. Finally, call 'createExcelFile' with the JSON data to get the download link for the user.
             
             Think step by step and use tools when needed to provide accurate answers.
             """;

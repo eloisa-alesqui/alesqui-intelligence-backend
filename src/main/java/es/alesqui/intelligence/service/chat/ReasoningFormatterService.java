@@ -53,29 +53,14 @@ public class ReasoningFormatterService {
             3. Extract key information from tool results
             4. Provide a clear conclusion that answers the user's question
             5. Make it visually appealing and easy to read
-            
-            IMPORTANT: Add blank lines between each major section and step for better readability.
-            
+                        
             Show your reasoning following this exact format:
-            
-    		==================================================
-            🔍 **STEP-BY-STEP REASONING**
-            ==================================================
-            
-            
-            🎯 **User question:**
-            
+                    
+            '🎯 **User question:**
               "[Exact quote of the user's question]"
-            
-            
             📋 **Action plan:**
-            
               [Brief description of the steps you will follow]
-            
-            
             ---
-            
-            
             🔧 **Step [number] - [Brief description of the step]**
             
             🛠️ **Tool used:**
@@ -83,27 +68,14 @@ public class ReasoningFormatterService {
             
             📊 **Result obtained:**
               [Clear and concise summary of the most relevant result]
-            
-            
             ---
-            
-            
             [Repeat the above pattern for each additional step, always including the separator line and blank lines]
-            
-            
             ---
-            
-            
             ✨ **Conclusion:**
-            
-              [Final summary of what was achieved and how it answers the original question]
-            
-            
-            ==================================================
-            
+              [Final summary of what was achieved and how it answers the original question]'
+
+                        
             Remember to:
-            - Add TWO blank lines between major sections
-            - Add ONE blank line after each subsection
             - Use horizontal separators (---) between steps
             - Maintain consistent indentation
             - Keep emojis aligned properly

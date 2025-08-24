@@ -1,5 +1,6 @@
 package es.alesqui.intelligence.service.chat.tools;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import es.alesqui.intelligence.dto.chat.request.ApiCallRequest;
@@ -14,14 +15,25 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Service;
+
+import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -32,6 +44,8 @@ public class ApiActionTools {
     private final UnifiedApiService unifiedApiService;
     private final ApiExecutionService apiExecutionService;
     private final ObjectMapper objectMapper;
+    
+    private final Path tempFileDir = Paths.get(System.getProperty("java.io.tmpdir"), "alesqui-intelligence-files");
 
     @Tool(description = "Lists all available APIs with their descriptions, tags, and a summary of their capabilities. This is the first step to take to decide which API is the most appropriate for a user's query.")
     public String listApis() {
@@ -199,6 +213,65 @@ public class ApiActionTools {
                 .build();
         
         return request;
+    }
+    
+    @Tool(description = "Creates an Excel file from JSON data and returns a download link. Use this tool when the user asks for a file (Excel, CSV, etc.) to be created.")
+    public String createExcelFile(
+        @ToolParam(description = "A JSON string representing an array of objects. Each object is a row, and each key in the object is a column header.") String jsonData,
+        @ToolParam(description = "A descriptive name for the file, without the extension. Example: 'api_endpoints_report'") String filename
+    ) {
+        try {
+            // 1. Ensure the temporary directory exists
+            if (!Files.exists(tempFileDir)) {
+                Files.createDirectories(tempFileDir);
+            }
+
+            // 2. Convert the JSON to a list of maps
+            List<Map<String, Object>> data = objectMapper.readValue(jsonData, new TypeReference<>() {});
+
+            if (data.isEmpty()) {
+                return "Error: Cannot create an empty file. The JSON data was empty.";
+            }
+
+            // 3. Create the Excel workbook using Apache POI
+            Workbook workbook = new XSSFWorkbook();
+            Sheet sheet = workbook.createSheet("Data");
+
+            // Create the header row
+            Row headerRow = sheet.createRow(0);
+            List<String> headers = data.get(0).keySet().stream().toList();
+            for (int i = 0; i < headers.size(); i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers.get(i));
+            }
+
+            // Fill the rows with data
+            for (int i = 0; i < data.size(); i++) {
+                Row row = sheet.createRow(i + 1);
+                Map<String, Object> rowData = data.get(i);
+                for (int j = 0; j < headers.size(); j++) {
+                    Cell cell = row.createCell(j);
+                    Object value = rowData.get(headers.get(j));
+                    cell.setCellValue(value != null ? value.toString() : "");
+                }
+            }
+
+            // 4. Save the file to the temporary directory
+            String uniqueFilename = filename.replaceAll("[^a-zA-Z0-9.-]", "_") + "_" + UUID.randomUUID().toString().substring(0, 8) + ".xlsx";
+            Path filePath = tempFileDir.resolve(uniqueFilename);
+
+            try (FileOutputStream fileOut = new FileOutputStream(filePath.toFile())) {
+                workbook.write(fileOut);
+            }
+            workbook.close();
+
+            // 5. Return the file name
+            return "File created successfully. [FILE=" + uniqueFilename + "]";
+
+        } catch (Exception e) {
+            // Return a clear error to the AI
+            return "Error creating Excel file: " + e.getMessage();
+        }
     }
 
  

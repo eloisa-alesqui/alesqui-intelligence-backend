@@ -67,4 +67,16 @@ public class AlesquiIntelligenceProperties {
         private int maxDescriptionLength = 1000;
         private boolean requireCollectionName = true;
     }
+    
+    /**
+     * Properties related to data storage, history, and file management.
+     */
+    @Data
+    public static class FileStorage {
+        /**
+         * The base directory where temporary files (like generated Excels) are stored.
+         * If not specified, the system's default temporary directory will be used.
+         */
+        private String tempUploadDir;
+    }
 }
