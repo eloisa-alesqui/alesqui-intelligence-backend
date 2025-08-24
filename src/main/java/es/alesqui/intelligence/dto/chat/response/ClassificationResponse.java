@@ -1,107 +1,118 @@
 package es.alesqui.intelligence.dto.chat.response;
 
+import es.alesqui.intelligence.service.chat.DynamicApiQueryClassifierService.QueryType;
 import lombok.Builder;
 import lombok.Data;
 import java.time.Instant;
 
 /**
- * Response DTO for query classification operations. Contains the classification
- * result and confidence metrics.
+ * Response DTO for query classification operations. Contains the specific
+ * classification result (QueryType) and metadata.
  */
 @Data
 @Builder
 public class ClassificationResponse {
 
-	/**
-	 * Flag indicating if the query requires API data access. True means ReAct
-	 * processing should be used.
-	 */
-	private boolean isDataQuery;
+    /**
+     * Flag indicating if the query requires API tool access. This is derived
+     * from the queryType.
+     */
+    private boolean isToolQuery; // Renamed from isDataQuery
 
-	/**
-	 * Explanation of why the query was classified this way. Provides transparency
-	 * in the classification decision.
-	 */
-	private String reasoning;
+    /**
+     * The specific category the query was classified into.
+     */
+    private QueryType queryType;
 
-	/**
-	 * Confidence score of the classification (0.0 to 1.0). Higher values indicate
-	 * more certain classifications.
-	 */
-	private double confidence;
+    /**
+     * Explanation of why the query was classified this way.
+     */
+    private String reasoning;
 
-	/**
-	 * Unique identifier for the conversation session.
-	 */
-	private String conversationId;
+    /**
+     * Unique identifier for the conversation session.
+     */
+    private String conversationId;
 
-	/**
-	 * Timestamp when the classification was performed.
-	 */
-	@Builder.Default
-	private Instant timestamp = Instant.now();
+    /**
+     * Timestamp when the classification was performed.
+     */
+    @Builder.Default
+    private Instant timestamp = Instant.now();
 
-	/**
-	 * Processing time for the classification in milliseconds.
-	 */
-	private Long classificationTimeMs;
+    /**
+     * Processing time for the classification in milliseconds.
+     */
+    private Long classificationTimeMs;
 
-	/**
-	 * Creates a classification response indicating data query.
-	 *
-	 * @param reasoning      explanation for the classification
-	 * @param confidence     classification confidence score
-	 * @param conversationId unique conversation identifier
-	 * @return ClassificationResponse for data query
-	 */
-	public static ClassificationResponse dataQuery(String reasoning, double confidence, String conversationId) {
-		return ClassificationResponse.builder().isDataQuery(true).reasoning(reasoning).confidence(confidence)
-				.conversationId(conversationId).timestamp(Instant.now()).build();
-	}
+    /**
+     * Creates a classification response for queries that require tool usage.
+     * This indicates that the ReAct flow should be initiated.
+     *
+     * @param reasoning      Explanation for the classification.
+     * @param conversationId Unique conversation identifier.
+     * @param type           The specific type of query (DATA_QUERY or META_QUERY).
+     * @return ClassificationResponse configured for tool usage.
+     */
+    public static ClassificationResponse toolQuery(String reasoning, String conversationId, QueryType type) {
+        return ClassificationResponse.builder()
+                .isToolQuery(true) // Updated to use the new field name
+                .queryType(type)
+                .reasoning(reasoning)
+                .conversationId(conversationId)
+                .build();
+    }
 
-	/**
-	 * Creates a classification response indicating direct answer.
-	 *
-	 * @param reasoning      explanation for the classification
-	 * @param confidence     classification confidence score
-	 * @param conversationId unique conversation identifier
-	 * @return ClassificationResponse for direct answer
-	 */
-	public static ClassificationResponse directAnswer(String reasoning, double confidence, String conversationId) {
-		return ClassificationResponse.builder().isDataQuery(false).reasoning(reasoning).confidence(confidence)
-				.conversationId(conversationId).timestamp(Instant.now()).build();
-	}
+    /**
+     * Creates a classification response for queries that can be answered directly.
+     *
+     * @param reasoning      Explanation for the classification.
+     * @param conversationId Unique conversation identifier.
+     * @param type           The query type (DIRECT_ANSWER).
+     * @return ClassificationResponse configured for a direct answer.
+     */
+    public static ClassificationResponse directAnswer(String reasoning, String conversationId, QueryType type) {
+        return ClassificationResponse.builder()
+                .isToolQuery(false) // Updated to use the new field name
+                .queryType(type)
+                .reasoning(reasoning)
+                .conversationId(conversationId)
+                .build();
+    }
 
-	/**
-	 * Creates an uncertain classification response.
-	 *
-	 * @param reasoning      explanation for the uncertainty
-	 * @param conversationId unique conversation identifier
-	 * @return ClassificationResponse with low confidence
-	 */
-	public static ClassificationResponse uncertain(String reasoning, String conversationId) {
-		return ClassificationResponse.builder().isDataQuery(true) // Default to ReAct when uncertain
-				.reasoning("Uncertain classification: " + reasoning).confidence(0.5).conversationId(conversationId)
-				.timestamp(Instant.now()).build();
-	}
+    /**
+     * Creates a classification response for uncertain cases, defaulting to tool usage.
+     *
+     * @param reasoning      Explanation for the uncertainty.
+     * @param conversationId Unique conversation identifier.
+     * @return ClassificationResponse with a safe fallback to tool usage.
+     */
+    public static ClassificationResponse uncertain(String reasoning, String conversationId) {
+        return ClassificationResponse.builder()
+                .isToolQuery(true) // Updated to use the new field name
+                .queryType(QueryType.DATA_QUERY)
+                .reasoning("Uncertain classification: " + reasoning)
+                .conversationId(conversationId)
+                .build();
+    }
 
-	/**
-	 * Sets the classification processing time.
-	 *
-	 * @param timeMs processing time in milliseconds
-	 * @return this response for method chaining
-	 */
-	public ClassificationResponse withProcessingTime(long timeMs) {
-		this.classificationTimeMs = timeMs;
-		return this;
-	}
+    /**
+     * Sets the classification processing time.
+     *
+     * @param timeMs Processing time in milliseconds.
+     * @return This response for method chaining.
+     */
+    public ClassificationResponse withProcessingTime(long timeMs) {
+        this.classificationTimeMs = timeMs;
+        return this;
+    }
 
-	/**
-	 * Checks if this classification recommends ReAct processing.
-	 *
-	 * @return true if ReAct should be used
-	 */
-	public boolean shouldUseReAct() {
-		return isDataQuery;
-	}
+    /**
+     * Checks if this classification recommends using the tool-based ReAct flow.
+     *
+     * @return True if the ReAct flow should be used.
+     */
+    public boolean shouldUseReAct() {
+        return isToolQuery; 
+    }
 }

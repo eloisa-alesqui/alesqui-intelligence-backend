@@ -2,303 +2,202 @@ package es.alesqui.intelligence.service.chat;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
-
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.config.ChatConfiguration;
 import es.alesqui.intelligence.dto.chat.response.ClassificationResponse;
 import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
-import es.alesqui.intelligence.model.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
+/**
+ * Service responsible for the initial classification of user queries.
+ *
+ * This service acts as the central "brain" of the orchestration layer, determining the
+ * user's intent before any complex processing begins. It analyzes the user's query
+ * against the known capabilities of all configured APIs and classifies it into one of
+ * three categories:
+ *
+ * 1.  **DATA_QUERY**: The user is asking for specific business data that requires
+ * calling one or more API endpoints (e.g., "show me last week's sales").
+ * 2.  **META_QUERY**: The user is asking a question about the APIs themselves, such as
+ * their structure, available endpoints, or parameters (e.g., "what endpoints
+ * does the ecommerce API have?").
+ * 3.  **DIRECT_ANSWER**: The query is a general question, a greeting, or a topic
+ * that does not require any knowledge of the configured APIs (e.g., "hello",
+ * "what is a REST API?").
+ *
+ * To achieve this, the service dynamically constructs a prompt for an AI model,
+ * enriching it with the high-level capabilities of each active API (using the
+ * pre-calculated 'capabilitiesSummary' field for efficiency). The prompt and its
+ * structure are cached to minimize latency on subsequent requests.
+ *
+ * The final classification (`DATA_QUERY` / `META_QUERY` vs. `DIRECT_ANSWER`) is used by the
+ * ChatOrchestrationService to decide whether to route the request to the tool-based
+ * ReAct flow or to a direct, conversational response flow.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class DynamicApiQueryClassifierService {
 
-	private final SpringAIService springAIService;
-	private final UnifiedApiService unifiedApiService;
-	private final ChatConfiguration chatConfig;
-	
-	private String cachedClassificationPrompt;
-	private Instant lastPromptUpdate;
+    private final SpringAIService springAIService;
+    private final UnifiedApiService unifiedApiService;
+    private final ChatConfiguration chatConfig;
 
-	/**
-	 * Classify query based on available APIs
-	 */
-	Mono<ClassificationResponse> classifyQuery(String query, String conversationId) {
-	  Instant startTime = Instant.now();
-	  
-	  return getOrBuildClassificationPrompt(conversationId)
-	      .flatMap(prompt -> classifyWithAI(query, prompt, conversationId))
-	      .map(isDataQuery -> {
-	          long processingTime = Duration.between(startTime, Instant.now()).toMillis();
-	          
-	          if (isDataQuery) {
-	              return ClassificationResponse.dataQuery(
-	                  "Query requires API data access", 
-	                  0.8, 
-	                  conversationId)
-	                  .withProcessingTime(processingTime);
-	          } else {
-	              return ClassificationResponse.directAnswer(
-	                  "Query can be answered directly", 
-	                  0.8, 
-	                  conversationId)
-	                  .withProcessingTime(processingTime);
-	          }
-	      })
-	      .doOnNext(response -> 
-	          log.debug("Query '{}' classified as data query: {} with confidence: {}", 
-	                   query, response.shouldUseReAct(), response.getConfidence()));
-	}
+    private String cachedClassificationPrompt;
+    private Instant lastPromptUpdate;
 
-	/**
-	 * Get cached prompt or build new one if APIs changed
-	 */
-	private Mono<String> getOrBuildClassificationPrompt(String conversationId) {
-		if (cachedClassificationPrompt != null && lastPromptUpdate != null
-				&& lastPromptUpdate.isAfter(Instant.now().minus(
-						chatConfig.getPromptCacheTime().toMinutes(), ChronoUnit.MINUTES))) {
-			return Mono.just(cachedClassificationPrompt);
-		}
+    /**
+     * Enum representing the three possible types of user queries.
+     */
+    public enum QueryType {
+        /**
+         * The user is asking for specific business data that requires calling an API.
+         * Example: "show me last week's sales"
+         */
+        DATA_QUERY,
+        /**
+         * The user is asking about the APIs themselves (structure, endpoints, parameters).
+         * Example: "what endpoints are available in the ecommerce API?"
+         */
+        META_QUERY,
+        /**
+         * The query is a general question or greeting that doesn't require API knowledge.
+         * Example: "hello, how are you?"
+         */
+        DIRECT_ANSWER
+    }
 
-		return buildDynamicClassificationPrompt(conversationId).doOnNext(prompt -> {
-			cachedClassificationPrompt = prompt;
-			lastPromptUpdate = Instant.now();
-			log.debug("Classification prompt updated (cache time: {})", 
-	                  chatConfig.getPromptCacheTime());
-		});
-	}
+    /**
+     * Classifies the user's query to determine if it requires API interaction.
+     * The method is fully reactive and non-blocking.
+     *
+     * @param query The user's query string.
+     * @param conversationId The unique identifier for the conversation.
+     * @return A Mono emitting a ClassificationResponse containing the query type.
+     */
+    public Mono<ClassificationResponse> classifyQuery(String query, String conversationId) {
+        Instant startTime = Instant.now();
 
-	/**
-	 * Build classification prompt based on available APIs
-	 */
-	private Mono<String> buildDynamicClassificationPrompt(String conversationId) {
-		return unifiedApiService.findActiveApis().collectList()
-				.flatMap(apis -> generatePromptFromApis(apis, conversationId));
-	}
+        return getOrBuildClassificationPrompt()
+            .flatMap(prompt -> classifyWithAI(query, prompt))
+            .map(queryType -> {
+                long processingTime = Duration.between(startTime, Instant.now()).toMillis();
+                boolean requiresTools = (queryType == QueryType.DATA_QUERY || queryType == QueryType.META_QUERY);
 
-	private Mono<String> generatePromptFromApis(List<UnifiedApiDocument> apis, String conversationId) {
-		StringBuilder prompt = new StringBuilder();
+                if (requiresTools) {
+                    return ClassificationResponse.toolQuery("Query requires API tool access", conversationId, queryType)
+                            .withProcessingTime(processingTime);
+                } else {
+                    return ClassificationResponse.directAnswer("Query can be answered directly", conversationId, queryType)
+                            .withProcessingTime(processingTime);
+                }
+            })
+            .doOnNext(response -> log.debug("Query '{}' classified as requiring tools: {}", query, response.shouldUseReAct()));
+    }
 
-		prompt.append(
-				"""
-						You are a query classifier. Determine if a user query requires calling APIs to retrieve data.
+    /**
+     * Retrieves the classification prompt from cache or rebuilds it if it's stale.
+     *
+     * @return A Mono emitting the classification prompt string.
+     */
+    private Mono<String> getOrBuildClassificationPrompt() {
+        if (cachedClassificationPrompt != null && lastPromptUpdate != null
+                && lastPromptUpdate.isAfter(Instant.now().minus(chatConfig.getPromptCacheTime()))) {
+            log.trace("Using cached classification prompt.");
+            return Mono.just(cachedClassificationPrompt);
+        }
 
-						Answer with ONLY: YES or NO
+        return buildDynamicClassificationPrompt().doOnNext(prompt -> {
+            cachedClassificationPrompt = prompt;
+            lastPromptUpdate = Instant.now();
+            log.debug("Classification prompt updated (cache time: {})", chatConfig.getPromptCacheTime());
+        });
+    }
 
-						Answer YES if the query asks for information that would require calling any of these available data retrieval endpoints:
+    /**
+     * Builds the dynamic classification prompt using the capabilities of the available APIs.
+     *
+     * @return A Mono emitting the fully constructed prompt.
+     */
+    private Mono<String> buildDynamicClassificationPrompt() {
+        return unifiedApiService.findActiveApis().collectList().map(this::generatePromptFromApis);
+    }
 
-						""");
+    /**
+     * Generates the main prompt text from the list of available API documents.
+     * This prompt instructs the AI on how to perform the three-way classification.
+     *
+     * @param apis The list of active UnifiedApiDocument objects.
+     * @return The complete prompt string.
+     */
+    private String generatePromptFromApis(List<UnifiedApiDocument> apis) {
+        StringBuilder prompt = new StringBuilder();
 
-		// Add information about each API (only GET endpoints)
-		for (UnifiedApiDocument api : apis) {
-			prompt.append("📊 **").append(api.getName()).append("**\n");
-			prompt.append("   Purpose: ").append(api.getDescription()).append("\n");
+        prompt.append(
+            """
+            You are an expert query classifier. Your task is to classify the user's query into one of three categories: DATA_QUERY, META_QUERY, or DIRECT_ANSWER.
+            Respond with ONLY the category name.
 
-			List<String> getEndpoints = api.getEndpoints().stream()
-					.filter(endpoint -> "GET".equalsIgnoreCase(endpoint.getMethod()))
-					.map(endpoint -> "• " + endpoint.getOperationId()
-							+ (endpoint.getSummary() != null ? " - " + endpoint.getSummary() : "")
-							+ (endpoint.getDescription() != null ? " - " + endpoint.getDescription() : ""))
-					.toList();
+            1.  **DATA_QUERY**: The user is asking for specific business data that requires calling an API to fetch information.
+                (Examples: "show me last week's sales", "who is the user with email test@test.com?", "get product details for ID 123").
 
-			if (!getEndpoints.isEmpty()) {
-				prompt.append("   Available data endpoints:\n");
-				getEndpoints.forEach(endpoint -> prompt.append("     ").append(endpoint).append("\n"));
-			} else {
-				prompt.append("   (No data retrieval endpoints available)\n");
-			}
-			prompt.append("\n");
-		}
+            2.  **META_QUERY**: The user is asking ABOUT the APIs themselves. They want to know about the structure, capabilities, endpoints, or parameters.
+                (Examples: "what endpoints are available in the ecommerce API?", "what parameters does the searchUsers endpoint take?", "which APIs can I use?").
 
-		// Generate examples using AI
-		return generatePositiveExamplesFromGetEndpoints(apis, conversationId).map(aiGeneratedExamples -> {
-			prompt.append("EXAMPLES of DATA QUERIES (answer YES):\n");
-			prompt.append(aiGeneratedExamples);
+            3.  **DIRECT_ANSWER**: The query is a general question, a greeting, or something that does not require any API knowledge.
+                (Examples: "hello", "what is your purpose?", "explain what a REST API is").
 
-			prompt.append("User query: \"{}\"");
-			prompt.append("\n\nAnswer: ");
+            Here are the available APIs to help you classify:
+            """
+        );
 
-			return prompt.toString();
-		});
-	}
+        for (UnifiedApiDocument api : apis) {
+            prompt.append("\n---");
+            prompt.append("\nAPI Name: ").append(api.getName());
+            prompt.append("\nDescription: ").append(api.getDescription());
+            prompt.append("\nCapabilities: ").append(api.getCapabilitiesSummary());
+        }
 
-	/**
-	 * Generate positive examples using AI based on available GET endpoints with
-	 * their parameters
-	 */
-	private Mono<String> generatePositiveExamplesFromGetEndpoints(List<UnifiedApiDocument> apis, String conversationId) {
-		if (apis.isEmpty()) {
-			return Mono.just("- \"Show me data\"\n- \"Get information\"\n");
-		}
+        prompt.append("\n\n---");
+        prompt.append("\nUser Query: \"{}\"");
+        prompt.append("\nCategory:");
 
-		String apiContext = buildDetailedApiContextForExamples(apis);
+        return prompt.toString();
+    }
 
-		String exampleGenerationPrompt = """
-				Based on the following APIs and their GET endpoints WITH PARAMETERS, generate 8-10 realistic user questions
-				that would require calling these APIs to retrieve data.
+    /**
+     * Calls the AI model to perform the classification.
+     *
+     * @param query The user's query.
+     * @param promptTemplate The prompt template to use.
+     * @return A Mono emitting the classified QueryType.
+     */
+    private Mono<QueryType> classifyWithAI(String query, String promptTemplate) {
+        String finalPrompt = promptTemplate.replace("{}", query);
 
-				APIs available:
-				%s
+        return springAIService
+                .chatWithoutMemory("You are a precise query classifier. Respond with only the category name.", finalPrompt)
+                .map(this::parseResponse);
+    }
 
-				IMPORTANT: Use the endpoint parameters to create specific, realistic questions that users would ask.
-				For example:
-				- If endpoint has {id} parameter: "Show me user details for ID X"
-				- If endpoint has ?status= parameter: "Get all active users" or "Show me pending orders"
-				- If endpoint has ?date= parameter: "What were sales on 2024-01-15?"
-				- If endpoint has ?limit= parameter: "Show me the top 10 products"
-
-				Format each question as: - "question text"
-
-				Focus on:
-				- Natural language questions that match the endpoint parameters
-				- Questions that clearly need data from the APIs
-				- Variety in question types (what, how many, show me, get, find, etc.)
-				- Mix of general and specific questions using parameter context
-				- Real-world scenarios users would encounter
-
-				Examples format:
-				- "What were the sales for customer ID X?"
-				- "Show me orders from last week"
-				- "Get product details for X"
-
-				Generate the examples now:
-				"""
-				.formatted(apiContext);
-
-		return springAIService.chat(
-				"You are an expert at generating realistic user queries for API-based systems. Pay special attention to endpoint parameters to create contextual questions.",
-				exampleGenerationPrompt, conversationId).map(response -> {
-					String cleanedResponse = cleanAIGeneratedExamples(response);
-					log.debug("Generated {} examples using AI with parameter context", countExamples(cleanedResponse));
-					return cleanedResponse;
-				}).onErrorReturn("""
-						- "Show me the latest data"
-						- "What information is available?"
-						- "Get statistics for..."
-						- "¿Qué datos tienes disponibles?"
-						"""); // Fallback examples if AI fails
-	}
-
-	/**
-	 * Build detailed API context string with parameters for example generation
-	 */
-	private String buildDetailedApiContextForExamples(List<UnifiedApiDocument> apis) {
-		StringBuilder context = new StringBuilder();
-
-		for (UnifiedApiDocument api : apis) {
-			context.append("📊 ").append(api.getName()).append("\n");
-			context.append("   Description: ").append(api.getDescription()).append("\n");
-
-			// Only GET endpoints with detailed parameter information
-			List<UnifiedEndpoint> getEndpoints = api.getEndpoints().stream()
-					.filter(endpoint -> "GET".equalsIgnoreCase(endpoint.getMethod())).toList();
-
-			if (!getEndpoints.isEmpty()) {
-				context.append("   GET Endpoints:\n");
-				getEndpoints.forEach(endpoint -> {
-					context.append("     • ").append(endpoint.getOperationId());
-
-					if (StringUtils.isNotBlank(endpoint.getSummary())) {
-						context.append(" - ").append(endpoint.getSummary());
-					}
-					context.append("\n");
-
-					if (StringUtils.isNotBlank(endpoint.getDescription())) {
-						context.append(" - ").append(endpoint.getDescription());
-					}
-					context.append("\n");
-
-					// Add parameter details
-					if (endpoint.getParameters() != null && !endpoint.getParameters().isEmpty()) {
-						context.append("       Parameters:\n");
-						endpoint.getParameters().forEach(param -> {
-							context.append("         - ").append(param.getName()).append(" (").append(param.getSchema().getType())
-									.append(")");
-
-							if (param.getDescription() != null) {
-								context.append(": ").append(param.getDescription());
-							}
-
-							if (param.isRequired()) {
-								context.append(" [REQUIRED]");
-							}
-
-							// Add example values if available
-							if (param.getExample() != null) {
-								context.append(" (e.g., ").append(param.getExample()).append(")");
-							}
-
-							context.append("\n");
-						});
-					} else {
-						context.append("       No parameters\n");
-					}
-					context.append("\n");
-				});
-			}
-			context.append("\n");
-		}
-
-		return context.toString();
-	}
-
-	/**
-	 * Clean and format AI-generated examples
-	 */
-	private String cleanAIGeneratedExamples(String aiResponse) {
-		return Arrays.stream(aiResponse.split("\n")).map(String::trim)
-				.filter(line -> line.startsWith("-") || line.startsWith("•"))
-				.map(line -> line.startsWith("•") ? line.replace("•", "-") : line).filter(line -> line.length() > 3) // Remove
-																														// too
-																														// short
-																														// lines
-				.limit(10) // Max 10 examples to keep prompt manageable
-				.collect(Collectors.joining("\n")) + "\n";
-	}
-
-	/**
-	 * Count examples for logging
-	 */
-	private int countExamples(String examples) {
-		return (int) examples.lines().filter(line -> line.trim().startsWith("-")).count();
-	}
-
-	/**
-	 * Classify with AI using the dynamic prompt
-	 */
-	private Mono<Boolean> classifyWithAI(String query, String promptTemplate, String conversationId) {
-		String finalPrompt = promptTemplate.replace("{}", query);
-
-		return springAIService.chat("You are a precise query classifier. Answer only YES or NO.", finalPrompt, conversationId)
-				.map(this::parseResponse);
-	}
-
-	private boolean parseResponse(String response) {
-		String cleanResponse = response.trim().toLowerCase();
-		return cleanResponse.startsWith("yes") || cleanResponse.startsWith("sí");
-	}
-
-	
-
-//	/**
-//	 * Invalidate cache when APIs are updated
-//	 */
-//  TODO
-//	@EventListener
-//	public void onApiUpdated(ApiUpdatedEvent event) {
-//		log.info("API configuration changed, invalidating classification prompt cache");
-//		cachedClassificationPrompt = null;
-//		lastPromptUpdate = null;
-//	}
+    /**
+     * Parses the raw string response from the AI into a QueryType enum.
+     *
+     * @param response The AI's raw response.
+     * @return The corresponding QueryType, defaulting to DIRECT_ANSWER on failure.
+     */
+    private QueryType parseResponse(String response) {
+        String cleanResponse = response.trim().toUpperCase();
+        try {
+            return QueryType.valueOf(cleanResponse);
+        } catch (IllegalArgumentException e) {
+            log.warn("Classifier returned an unknown type '{}'. Defaulting to DIRECT_ANSWER.", cleanResponse);
+            return QueryType.DIRECT_ANSWER; // Safe fallback
+        }
+    }
 }

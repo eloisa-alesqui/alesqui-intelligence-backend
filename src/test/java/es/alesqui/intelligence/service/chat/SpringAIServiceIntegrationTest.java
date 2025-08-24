@@ -10,11 +10,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import es.alesqui.intelligence.service.chat.SpringAIService;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Disabled
@@ -35,7 +33,7 @@ class SpringAIServiceIntegrationTest {
     @BeforeEach
     void setUp() {
         // Clean up any existing conversation
-        springAIService.clearConversation(CONVERSATION_ID);
+        //springAIService.clearConversation(CONVERSATION_ID);
     }
     
     @Test
@@ -62,9 +60,6 @@ class SpringAIServiceIntegrationTest {
                     assertThat(response.toLowerCase()).contains("4");
                 })
                 .verifyComplete();
-
-        // Verify conversation was stored
-        assertThat(springAIService.getConversationSize(CONVERSATION_ID)).isEqualTo(2);
     }
 
     @Test
@@ -90,9 +85,6 @@ class SpringAIServiceIntegrationTest {
                     assertThat(response).containsIgnoringCase("TestUser");
                 })
                 .verifyComplete();
-
-        // Verify conversation history
-        assertThat(springAIService.getConversationSize(CONVERSATION_ID)).isEqualTo(4);
     }
 
     @Test
@@ -108,10 +100,6 @@ class SpringAIServiceIntegrationTest {
                     assertThat(response).containsIgnoringCase("Paris");
                 })
                 .verifyComplete();
-
-        // Verify no conversation history was stored
-        Map<String, Integer> stats = springAIService.getConversationStats();
-        assertThat(stats).doesNotContainKey(CONVERSATION_ID);
     }
 
     @Test
@@ -129,7 +117,7 @@ class SpringAIServiceIntegrationTest {
                          "Temperature should be 22 degrees and condition sunny.";
       
       // When & Then
-      StepVerifier.create(springAIService.extractStructuredData(systemPrompt, userPrompt, CONVERSATION_ID, WeatherInfo.class))
+      StepVerifier.create(springAIService.extractStructuredData(systemPrompt, userPrompt, WeatherInfo.class))
               .assertNext(weather -> {
                   assertThat(weather).isNotNull();
                   assertThat(weather.city()).containsIgnoringCase("Madrid");
@@ -182,12 +170,6 @@ class SpringAIServiceIntegrationTest {
                     assertThat(response).containsIgnoringCase("red");
                 })
                 .verifyComplete();
-
-        // Verify stats
-        Map<String, Integer> stats = springAIService.getConversationStats();
-        assertThat(stats).containsKeys(convId1, convId2);
-        assertThat(stats.get(convId1)).isEqualTo(4);
-        assertThat(stats.get(convId2)).isEqualTo(4);
     }
 
     @Test
@@ -204,32 +186,7 @@ class SpringAIServiceIntegrationTest {
                     limitTestConvId))
                     .assertNext(response -> assertThat(response).isNotNull())
                     .verifyComplete();
-            
-            int currentSize = springAIService.getConversationSize(limitTestConvId);
-            assertThat(currentSize).isLessThanOrEqualTo(20);
         }
-
-        // Verify history was trimmed
-        assertThat(springAIService.getConversationSize(limitTestConvId)).isEqualTo(20);
     }
 
-    @Test
-    @DisplayName("Should clear conversation properly")
-    void testClearConversation() {
-        // Create a conversation
-        StepVerifier.create(springAIService.chat(
-                SYSTEM_PROMPT, 
-                "Hello, this is a test", 
-                CONVERSATION_ID))
-                .assertNext(response -> assertThat(response).isNotNull())
-                .verifyComplete();
-
-        assertThat(springAIService.getConversationSize(CONVERSATION_ID)).isGreaterThan(0);
-
-        // Clear it
-        springAIService.clearConversation(CONVERSATION_ID);
-
-        // Verify it's cleared
-        assertThat(springAIService.getConversationSize(CONVERSATION_ID)).isEqualTo(0);
-    }
 }

@@ -19,6 +19,12 @@ public class ChatResponse {
    * Final answer content provided to the user.
    */
   private String content;
+  
+  /**
+   * The formatted step-by-step reasoning narrative (in Markdown format).
+   * This field will be populated only if reasoning is requested and available.
+   */
+  private String reasoning;
 
   /**
    * Unique identifier for the conversation session.

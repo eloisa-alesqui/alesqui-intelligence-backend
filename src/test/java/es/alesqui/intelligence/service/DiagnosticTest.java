@@ -36,12 +36,11 @@ public class DiagnosticTest {
 
 		String systemPrompt = "You are a connectivity test assistant.";
 		String userPrompt = "Respond with 'OK' if you can process this request.";
-		String testConversationId = "connectivity-test-" + System.currentTimeMillis();
 
 		record ConnectivityResponse(String status) {
 		}
 
-		StepVerifier.create(springAIService.extractStructuredData(systemPrompt, userPrompt, testConversationId,
+		StepVerifier.create(springAIService.extractStructuredData(systemPrompt, userPrompt,
 				ConnectivityResponse.class)).assertNext(response -> {
 					assertThat(response).isNotNull();
 					assertThat(response.status()).isEqualTo("OK");

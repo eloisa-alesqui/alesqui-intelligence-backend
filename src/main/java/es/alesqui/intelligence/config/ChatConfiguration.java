@@ -71,6 +71,12 @@ public class ChatConfiguration {
    */
   private CleanupConfig cleanup = new CleanupConfig();
   
+  /**
+   * Configurations for stateless, utility AI calls (e.g., summarization, classification).
+   */
+  private UtilityAiConfig utilityAi = new UtilityAiConfig();
+
+  
   @Data
   public static class ReasoningConfig {
       /**
@@ -100,5 +106,15 @@ public class ChatConfiguration {
        * Enable automatic cleanup
        */
       private boolean enableAutoCleanup = true;
+  }
+  
+  @Data
+  public static class UtilityAiConfig {
+      /**
+       * Timeout for stateless AI operations that run in the background,
+       * like generating summaries or classifying text.
+       */
+      @NotNull
+      private Duration timeout = Duration.ofSeconds(20);
   }
 }

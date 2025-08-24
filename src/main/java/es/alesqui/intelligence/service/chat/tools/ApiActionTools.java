@@ -7,6 +7,7 @@ import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
 import es.alesqui.intelligence.exception.ApiExecutionException;
 import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.unified.UnifiedEndpoint;
+import es.alesqui.intelligence.model.unified.UnifiedParameter;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import es.alesqui.intelligence.service.api.ApiExecutionService;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -31,7 +33,7 @@ public class ApiActionTools {
     private final ApiExecutionService apiExecutionService;
     private final ObjectMapper objectMapper;
 
-    @Tool(description = "Lists all available APIs and their descriptions. This is the first step to take if you don't know which APIs are available to interact with.")
+    @Tool(description = "Lists all available APIs with their descriptions, tags, and a summary of their capabilities. This is the first step to take to decide which API is the most appropriate for a user's query.")
     public String listApis() {
         log.info("Executing tool: listApis");
         try {
@@ -39,17 +41,25 @@ public class ApiActionTools {
             if (apis == null || apis.isEmpty()) {
                 return "No available APIs were found.";
             }
-            // We format the output to be readable for the LLM and the user
+
             return "Available APIs:\n" + apis.stream()
-                .map(api -> String.format("• Name: %s, Description: %s", api.getName(), api.getDescription()))
-                .collect(Collectors.joining("\n"));
+                .map(api -> String.format(
+                    "• Name: %s\n  - Description: %s\n  - Tags: [%s]\n  - Capabilities: %s",
+                    api.getName(),
+                    api.getDescription(),
+                    (api.getTags() != null && !api.getTags().isEmpty()) ? String.join(", ", api.getTags()) : "none",
+                    (api.getCapabilitiesSummary() != null && !api.getCapabilitiesSummary().isBlank()) 
+                        ? api.getCapabilitiesSummary() 
+                        : "Not available"
+                ))
+                .collect(Collectors.joining("\n\n")); // Double newline for better readability between APIs
         } catch (Exception e) {
             log.error("Error in listApis tool", e);
             return "Error while trying to list APIs: " + e.getMessage();
         }
     }
 
-    @Tool(description = "Gets the endpoints (operations) for a specific API. You need this to know which operations can be performed before calling 'callApi'.")
+    @Tool(description = "Gets the endpoints (operations) for a specific API, including their required parameters. You need this to know which operations can be performed before calling 'callApi'.")
     public String listEndpoints(
         @ToolParam(description = "The exact name of the API to inspect. Must be one of the names returned by the 'listApis' tool.") String apiName) {
         log.info("Executing tool: listEndpoints for API '{}'", apiName);
@@ -63,14 +73,30 @@ public class ApiActionTools {
                 return "The API '" + apiName + "' has no available endpoints (operations).";
             }
 
-            // We return a clear list with the operation ID (to be used in callApi) and its description
             return "Available endpoints for the API '" + apiName + "':\n" + api.getEndpoints().stream()
-                .map(e -> String.format("• OperationId: %s, Description: %s, Method: %s", e.getOperationId(), e.getSummary(), e.getMethod()))
-                .collect(Collectors.joining("\n"));
+                .map(e -> String.format("• OperationId: %s, Method: %s, Description: %s\n%s", 
+                                      e.getOperationId(), 
+                                      e.getMethod(), 
+                                      e.getSummary(), 
+                                      formatParametersForLLM(e.getParameters())))
+                .collect(Collectors.joining("\n\n")); 
         } catch (Exception e) {
             log.error("Error in listEndpoints tool for API '{}'", apiName, e);
             return "Error listing endpoints for '" + apiName + "': " + e.getMessage();
         }
+    }
+
+    private String formatParametersForLLM(List<UnifiedParameter> parameters) {
+        if (parameters == null || parameters.isEmpty()) {
+            return "  - Parameters: None";
+        }
+        return "  - Parameters:\n" + parameters.stream()
+            .map(p -> String.format("    - Name: %s, In: %s, Required: %s, Description: %s",
+                                  p.getName(),       
+                                  p.getIn(),         
+                                  p.isRequired(),    
+                                  p.getDescription())) 
+            .collect(Collectors.joining("\n"));
     }
     
     @Tool(description = "Calls a specific API endpoint with the provided parameters. Use this after getting the available endpoints with 'listEndpoints'.")
