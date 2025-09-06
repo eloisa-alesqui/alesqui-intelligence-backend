@@ -2,11 +2,14 @@ package es.alesqui.intelligence.service.chat;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import es.alesqui.intelligence.config.ChatConfiguration;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
+import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
 import es.alesqui.intelligence.dto.chat.response.ClassificationResponse;
 import es.alesqui.intelligence.service.chat.DynamicApiQueryClassifierService.QueryType;
@@ -112,11 +115,19 @@ public class ChatOrchestrationService {
             - listEndpoints(apiName): Get endpoints for a specific API  
             - callApi(apiName, endpoint, parametersJson): Call an API endpoint
             - createExcelFile(jsonData, filename): Creates an Excel file from JSON data and returns a download link.
+            - createChart(chartType, jsonData, labelKey, dataKey, datasetLabel): Creates a chart configuration from JSON data.
             
             **Workflow for creating files:**
             1. First, use other tools like 'listEndpoints' to gather the data the user wants.
             2. Second, structure this data into a valid JSON array format.
             3. Finally, call 'createExcelFile' with the JSON data to get the download link for the user.
+            
+            **Workflow for creating CHARTS:**
+            1. Use 'callApi' to get the necessary data.
+            2. Analyze the JSON result to identify the keys for labels and data.
+            3. Call 'createChart' with the data and keys to get a chart configuration object.
+            4. **IMPORTANT:** After calling createChart, your job is done. Your final answer should be a brief summary of the data, informing the user that the chart has been generated.
+            5. **Do NOT include the raw chart JSON configuration in your final response to the user.**
             
             Think step by step and use tools when needed to provide accurate answers.
             """;
@@ -124,6 +135,7 @@ public class ChatOrchestrationService {
         return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning())
             .timeout(chatConfig.getToolsTimeout())
             .map(chatWithReasoningResponse -> {
+            	org.springframework.ai.chat.model.ChatResponse aiResponse = chatWithReasoningResponse.getChatResponse();
             	String responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
                 String formattedReasoning = null;
 
@@ -131,11 +143,14 @@ public class ChatOrchestrationService {
                     formattedReasoning = chatWithReasoningResponse.getFormattedReasoning();
                 }
                 
+                ChartData chartData = chatWithReasoningResponse.getChart();
+                
                 long processingTime = Duration.between(startTime, Instant.now()).toMillis();
                 
                 return ChatResponse.builder()
                         .content(responseContent)
-                        .reasoning(formattedReasoning) // Asignamos el razonamiento a su nuevo campo.
+                        .reasoning(formattedReasoning)
+                        .chart(chartData)
                         .conversationId(request.getConversationId())
                         .success(true)
                         .processingType("TOOLS")
@@ -143,7 +158,7 @@ public class ChatOrchestrationService {
                         .build();
             });
     }
-
+    
     /**
      * Generates a direct response without API calls, fully reactively.
      */

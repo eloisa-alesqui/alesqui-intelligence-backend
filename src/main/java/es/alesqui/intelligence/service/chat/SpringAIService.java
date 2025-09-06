@@ -26,6 +26,9 @@ import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatWithReasoningResponse;
 import es.alesqui.intelligence.service.chat.tools.ApiActionTools;
 import reactor.core.publisher.Mono;
@@ -50,6 +53,7 @@ public class SpringAIService {
 	private final ReasoningFormatterService reasoningFormatterService;
 	private final ChatMemory chatMemory;
 	private final MeterRegistry meterRegistry;
+	private final ObjectMapper objectMapper;
 
 	/**
 	 * Validates input parameters to ensure they are not null or empty.
@@ -217,6 +221,8 @@ public class SpringAIService {
 	            String reasoning = null;
 	            List<Message> turnHistory = new ArrayList<>();
 	            Map<String, Object> contextMap = new HashMap<>();
+	            ChartData capturedChartData = null;
+	            
 	            contextMap.put("conversationId", conversationId);
 	            ToolContext toolContext = new ToolContext(contextMap);
 
@@ -243,10 +249,26 @@ public class SpringAIService {
 	                // Execute the tools using the manager.
 	                // It's important to pass the 'chatResponse' containing the toolCalls.
 	                ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(currentPrompt, chatResponse);
+	                
+	                Message toolResponseMessage = toolExecutionResult.conversationHistory()
+	                         .get(toolExecutionResult.conversationHistory().size() - 1);
+	                
+	                if (toolResponseMessage instanceof ToolResponseMessage toolResponse) {
+	                	for (ToolResponseMessage.ToolResponse detailedResponse : toolResponse.getResponses()) {
+	                        if ("createChart".equals(detailedResponse.name())) {
+	                            String responseDataJson = detailedResponse.responseData();
+	                            try {
+	                                capturedChartData = objectMapper.readValue(responseDataJson, ChartData.class);
+	                                log.info("📊 ChartData object captured and deserialized successfully!");
+	                                break; 
+	                            } catch (Exception e) {
+	                                log.error("Error deserializing ChartData from tool response JSON: {}", responseDataJson, e);
+	                            }
+	                        }
+	                    }
+	                }
 
-	                // The ToolExecutionResult contains the ToolResponseMessages that we must add to the history.
-	                turnHistory.add(toolExecutionResult.conversationHistory()
-                            .get(toolExecutionResult.conversationHistory().size() - 1));
+	                turnHistory.add(toolResponseMessage);
 
 	                // Call the AI again with the updated history (which now includes the tool result).
 	                currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
@@ -268,7 +290,7 @@ public class SpringAIService {
 	            long totalTime = System.currentTimeMillis() - startTime;
 	            log.info("Successfully processed chat with tools for conversation: {} in {}ms", conversationId, totalTime);
 	            meterRegistry.timer("ai.chat.with.tools.duration", "status", "success").record(totalTime, TimeUnit.MILLISECONDS);
-	            return new ChatWithReasoningResponse(chatResponse, reasoning);
+	            return new ChatWithReasoningResponse(chatResponse, reasoning, capturedChartData);
 
 	        } catch (Exception e) {
 	            log.error("Error processing chat with tools for conversation {}: {}",

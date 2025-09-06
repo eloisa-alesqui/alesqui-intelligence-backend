@@ -1,6 +1,5 @@
 package es.alesqui.intelligence.service.unification;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -8,10 +7,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.annotation.HandleApiUnificationException;
 import es.alesqui.intelligence.config.ChatConfiguration;
+import es.alesqui.intelligence.model.postman.Collection;
 import es.alesqui.intelligence.model.postman.PostmanDocument;
 import es.alesqui.intelligence.model.swagger.SwaggerDocument;
 import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
@@ -34,29 +35,52 @@ public class ApiUnificationService {
     private final SpringAIService springAIService;
     private final ChatConfiguration chatConfig;
 
+    /**
+     * Unifies a Swagger document with an optional Postman document into a single UnifiedApiDocument.
+     * This method is null-safe and will proceed with unification even if the Postman document is not provided.
+     *
+     * @param swaggerDoc The mandatory Swagger document.
+     * @param postmanDoc The optional Postman document, which can be {@code null}.
+     * @return The unified API document.
+     */
     @HandleApiUnificationException
-    public UnifiedApiDocument unifyApiDocuments(SwaggerDocument swaggerDoc, PostmanDocument postmanDoc) {
-        log.info("Starting unification of API documents: {}", swaggerDoc.getName());
+    public UnifiedApiDocument unifyApiDocuments(SwaggerDocument swaggerDoc, @Nullable PostmanDocument postmanDoc) {
+        if (postmanDoc == null) {
+            log.info("Starting unification for API '{}' with Swagger document only.", swaggerDoc.getName());
+        } else {
+            log.info("Starting unification for API '{}' with both Swagger and Postman documents.", swaggerDoc.getName());
+        }
+        
+        // Conditionally extract properties from postmanDoc only if it's not null.
+        String postmanId = (postmanDoc != null) ? postmanDoc.getId() : null;
+        List<String> postmanTags = (postmanDoc != null) ? postmanDoc.getTags() : null;
+        String postmanTeam = (postmanDoc != null) ? postmanDoc.getTeam() : null;
+        boolean isPostmanActive = (postmanDoc != null) ? postmanDoc.isActive() : true; 
+        Collection postmanCollection = (postmanDoc != null) ? postmanDoc.getCollection() : null;
 
         UnifiedApiDocument.UnifiedApiDocumentBuilder builder = UnifiedApiDocument.builder()
             .name(swaggerDoc.getName())
             .description(swaggerDoc.getDescription())
             .sourceSwaggerId(swaggerDoc.getId())
-            .sourcePostmanId(postmanDoc.getId())
-            .tags(mergeTags(swaggerDoc.getTags(), postmanDoc.getTags()))
-            .team(swaggerDoc.getTeam() != null ? swaggerDoc.getTeam() : postmanDoc.getTeam())
+            .sourcePostmanId(postmanId) 
+            .tags(mergeTags(swaggerDoc.getTags(), postmanTags)) 
+            .team(swaggerDoc.getTeam() != null ? swaggerDoc.getTeam() : postmanTeam) 
             .createdBy(swaggerDoc.getCreatedBy())
-            .active(swaggerDoc.isActive() && postmanDoc.isActive());
+            .active(swaggerDoc.isActive() && isPostmanActive); 
 
+        // Process Swagger info 
         swaggerProcessingService.extractSwaggerInfo(builder, swaggerDoc.getOpenApi());
 
-        postmanProcessingService.mergePostmanInfo(builder, postmanDoc.getCollection());
+        // Process Postman info. The service itself should be null-safe, but we pass the safe variable.
+        postmanProcessingService.mergePostmanInfo(builder, postmanCollection);
 
+        // Merge endpoints. The service should handle a null collection.
         List<UnifiedEndpoint> endpoints = endpointUnificationService.mergeEndpoints(
-            swaggerDoc.getOpenApi(), postmanDoc.getCollection()
+            swaggerDoc.getOpenApi(), postmanCollection
         );
         builder.endpoints(endpoints);
         
+        // Generate AI summary if endpoints were found (unchanged)
         if (endpoints != null && !endpoints.isEmpty()) {
             try {
                 String summary = generateCapabilitiesSummary(endpoints);
@@ -64,7 +88,6 @@ public class ApiUnificationService {
                 log.info("Successfully generated AI capabilities summary for API: {}", swaggerDoc.getName());
             } catch (Exception e) {
                 log.error("Failed to generate AI capabilities summary for API: {}. Summary will be null.", swaggerDoc.getName(), e);
-                // Opcional: puedes poner un resumen por defecto o reintentar.
                 builder.capabilitiesSummary("Could not determine capabilities.");
             }
         }

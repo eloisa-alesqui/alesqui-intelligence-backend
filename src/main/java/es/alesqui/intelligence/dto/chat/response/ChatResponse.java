@@ -59,6 +59,13 @@ public class ChatResponse {
    * Type of processing used (DIRECT, REACT, HYBRID).
    */
   private String processingType;
+  
+  /**
+   * The configuration data for a chart to be displayed in the frontend.
+   * This field will be populated if the AI's response includes a visual
+   * representation of data. It will be null if no chart was generated.
+   */
+  private ChartData chart;
 
   /**
    * Creates a direct response without ReAct processing.

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import es.alesqui.intelligence.dto.chat.request.ApiCallRequest;
 import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
+import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.exception.ApiExecutionException;
 import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.unified.UnifiedEndpoint;
@@ -25,6 +26,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Service;
 
+import java.awt.Color;
 import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,8 +35,10 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -176,6 +180,32 @@ public class ApiActionTools {
             return createFallbackResponse(apiName, operationId, e);
         }
     }
+    
+    /**
+     * Resolves the path by replacing path variables with their actual values.
+     * E.g., from "/users/city/{city}" and parameters {"city": "Sevilla"} to "/users/city/Sevilla"
+     */
+    private String resolvePath(UnifiedEndpoint endpoint, Map<String, Object> parameters) {
+        String resolvedPath = endpoint.getPath();
+        List<UnifiedParameter> endpointParams = endpoint.getParameters();
+
+        if (endpointParams == null || endpointParams.isEmpty()) {
+            return resolvedPath;
+        }
+
+        for (UnifiedParameter paramDef : endpointParams) {
+            // Check if the parameter is a path variable
+            if ("path".equalsIgnoreCase(paramDef.getIn())) {
+                String paramName = paramDef.getName();
+                if (parameters.containsKey(paramName)) {
+                    Object paramValue = parameters.get(paramName);
+                    // Replace the placeholder {paramName} with its value
+                    resolvedPath = resolvedPath.replace("{" + paramName + "}", String.valueOf(paramValue));
+                }
+            }
+        }
+        return resolvedPath;
+    }
 
 	private ApiCallResponse createFallbackResponse(String apiName, String operationId, Exception e) {
 		return ApiCallResponse.failure("API execution failed: " + e.getMessage(), 503)
@@ -202,10 +232,26 @@ public class ApiActionTools {
      * Builds the ApiCallRequest from the unified API document and endpoint
      */
     private ApiCallRequest buildApiCallRequest(UnifiedApiDocument api, UnifiedEndpoint endpoint, Map<String, Object> parameters, String conversationId) {
+    	
+    	// Resolve path variables before building the request
+        String resolvedPath = resolvePath(endpoint, parameters);
+        
+        // Create a mutable copy of the parameters to filter out path variables
+        Map<String, Object> remainingParameters = new HashMap<>(parameters);
+
+        // Remove parameters that were used in the path from the remaining parameters map
+        if (endpoint.getParameters() != null) {
+            for (UnifiedParameter paramDef : endpoint.getParameters()) {
+                if ("path".equalsIgnoreCase(paramDef.getIn())) {
+                    remainingParameters.remove(paramDef.getName());
+                }
+            }
+        }
+    	
         ApiCallRequest request = ApiCallRequest.builder()
                 .apiName(api.getName())
                 .endpoint(endpoint.getOperationId())
-                .path(endpoint.getPath())
+                .path(resolvedPath)
                 .headers(new HashMap<>())
                 .httpMethod(endpoint.getMethod())
                 .parameters(parameters)
@@ -274,5 +320,82 @@ public class ApiActionTools {
         }
     }
 
+    @Tool(description = "Creates a chart configuration object from JSON data. Use this when the user asks for a visual representation of data (graph, chart, plot, etc.).")
+    public ChartData createChart(
+        @ToolParam(description = "The type of chart to create. Supported values: 'bar', 'pie', 'line'.") String chartType,
+        @ToolParam(description = "A JSON string of the data to plot. It should be an array of objects.") String jsonData,
+        @ToolParam(description = "The key in the JSON objects to be used for the labels on the chart's axis.") String labelKey,
+        @ToolParam(description = "The key in the JSON objects to be used for the data values.") String dataKey,
+        @ToolParam(description = "A descriptive title for the dataset. Example: 'Sales per Category'") String datasetLabel
+    ) {
+        try {
+            List<Map<String, Object>> data = objectMapper.readValue(jsonData, new TypeReference<>() {});
+
+            List<String> labels = data.stream()
+                .map(row -> row.get(labelKey).toString())
+                .collect(Collectors.toList());
+
+            List<Object> values = data.stream()
+                .map(row -> row.get(dataKey))
+                .collect(Collectors.toList());
+
+            ChartData.ChartDataset dataset = ChartData.ChartDataset.builder()
+                .label(datasetLabel)
+                .data(values)
+                .backgroundColor(generateColors(values.size())) 
+                .borderWidth(1)
+                .build();
+
+            ChartData.ChartConfigData configData = ChartData.ChartConfigData.builder()
+                .labels(labels)
+                .datasets(List.of(dataset))
+                .build();
+
+            return ChartData.builder()
+                .type(chartType)
+                .data(configData)
+                .options(Map.of("responsive", true)) 
+                .build();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Error creating chart data: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Generates a list of aesthetically pleasing and visually distinct colors,
+     * using the golden ratio to distribute the hues.
+     * Ideal for any number of data points.
+     *
+     * @param count The number of colors to generate.
+     * @return A list of color strings in "rgba(...)" format.
+     */
+    private List<String> generateColors(int count) {
+        if (count <= 0) {
+            return List.of();
+        }
+
+        final float GOLDEN_RATIO_CONJUGATE = 0.61803398875f;
+        final float saturation = 0.8f; // For vivid, not pastel, colors.
+        final float brightness = 0.9f; // For bright, not dark, colors.
+        
+        // The seed for our stream: a random starting hue.
+        float initialHue = new Random().nextFloat();
+
+        // Use Stream.iterate to generate a sequence of hues.
+        // It takes a seed (initialHue) and a function to generate the next element.
+        return Stream.iterate(initialHue, previousHue -> (previousHue + GOLDEN_RATIO_CONJUGATE) % 1.0f)
+            .limit(count) // Limit the infinite stream to the number of colors we need.
+            .map(hue -> {
+                // Map each hue value to a Color object.
+                Color color = Color.getHSBColor(hue, saturation, brightness);
+                // Convert the color to RGBA format for Chart.js.
+                return String.format("rgba(%d, %d, %d, 0.7)",
+                                     color.getRed(),
+                                     color.getGreen(),
+                                     color.getBlue());
+            })
+            .collect(Collectors.toList()); // Collect the results into a list.
+    }
  
 }

@@ -1,6 +1,8 @@
 package es.alesqui.intelligence.controller;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.*;
 
 import es.alesqui.intelligence.model.postman.PostmanDocument;
@@ -34,24 +36,23 @@ public class ApiUnificationController {
      */
     @PostMapping("/unify")
     public Mono<ResponseEntity<String>> unifyAndSaveApiDocuments(@RequestParam String apiName) {
-        return swaggerService.findByName(apiName)
-                .flatMap(swaggerDoc -> {
-                    if (swaggerDoc == null) {
-                        return Mono.just(ResponseEntity.badRequest().body("SwaggerDocument not found for API: " + apiName));
-                    }
+        log.info("Starting unification process for API: {}", apiName);
 
-                    return postmanService.findByName(apiName)
-                            .flatMap(postmanDoc -> {
-                                // Validar que el documento Postman no sea nulo
-                                if (postmanDoc == null) {
-                                    return Mono.just(ResponseEntity.badRequest().body("PostmanDocument not found for API: " + apiName));
-                                }
+        Mono<SwaggerDocument> swaggerMono = swaggerService.findByName(apiName)
+                .switchIfEmpty(Mono.error(new RuntimeException("SwaggerDocument not found for API: " + apiName)));
 
-                                // Intentar unificar los documentos
-                                return unifyAndSave(swaggerDoc, postmanDoc);
-                            });
-                })
-                .onErrorResume(e -> Mono.just(ResponseEntity.status(500).body("Unexpected error: " + e.getMessage())));
+        return swaggerMono
+            .flatMap(swaggerDoc -> 
+                postmanService.findByName(apiName)
+                    .flatMap(postmanDoc -> unifyAndSave(swaggerDoc, postmanDoc))
+                    .switchIfEmpty(Mono.defer(() -> unifyAndSave(swaggerDoc, null)))
+            )
+            .map(savedDoc -> ResponseEntity.ok("Unified API document saved successfully with ID: " + savedDoc.getId()))
+            .onErrorResume(e -> {
+                log.error("Failed to unify API '{}': {}", apiName, e.getMessage(), e);
+                String errorMessage = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error during unification: " + errorMessage));
+            });
     }
     
     /**
@@ -97,16 +98,19 @@ public class ApiUnificationController {
                 .doOnError(error -> log.error("Error fetching document with name: {}", name, error));
     }
     
-    private Mono<ResponseEntity<String>> unifyAndSave(SwaggerDocument swaggerDoc, PostmanDocument postmanDoc) {
-        try {
-            UnifiedApiDocument unifiedDocument = apiUnificationService.unifyApiDocuments(swaggerDoc, postmanDoc);
-
-            return apiUnificationService.save(unifiedDocument)
-                    .map(savedDocument -> ResponseEntity.ok("Unified API document saved successfully"))
-                    .onErrorResume(e -> Mono.just(ResponseEntity.status(500).body("Error saving unified document: " + e.getMessage())));
-        } catch (Exception e) {
-            return Mono.just(ResponseEntity.status(500).body("Error unifying API documents: " + e.getMessage()));
-        }
+    /**
+     * Helper method to unify documents and save the result.
+     * Handles a potentially null PostmanDocument.
+     *
+     * @param swaggerDoc The mandatory Swagger document.
+     * @param postmanDoc The optional Postman document.
+     * @return A Mono with the saved UnifiedApiDocument.
+     */
+    private Mono<UnifiedApiDocument> unifyAndSave(SwaggerDocument swaggerDoc, @Nullable PostmanDocument postmanDoc) {
+        return Mono.fromCallable(() -> apiUnificationService.unifyApiDocuments(swaggerDoc, postmanDoc))
+                   .flatMap(apiUnificationService::save) 
+                   .doOnSuccess(savedDoc -> log.info("Successfully unified and saved document for API: {}", savedDoc.getName()))
+                   .doOnError(e -> log.error("Error in unifyAndSave for API {}: {}", swaggerDoc.getName(), e.getMessage()));
     }
 
 }
