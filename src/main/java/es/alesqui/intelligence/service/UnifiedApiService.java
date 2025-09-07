@@ -11,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import es.alesqui.intelligence.model.unified.ApiConfiguration;
 import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
 import reactor.core.publisher.Flux;
@@ -156,6 +157,22 @@ public class UnifiedApiService {
 				.doOnSuccess(saved -> log.info("API document updated with ID: {}", saved.getId()))
 				.doOnError(error -> log.error("Error updating API document with ID: {}", apiId, error));
 	}
+	
+	/**
+     * Finds a unified document by name, updates its ApiConfiguration, and saves it.
+     *
+     * @param apiName The name of the API document to update.
+     * @param configuration The new configuration to apply.
+     * @return A Mono containing the updated document, or an error if not found.
+     */
+    public Mono<UnifiedApiDocument> updateConfiguration(String apiName, ApiConfiguration configuration) {
+        return unifiedApiRepository.findByNameIgnoreCase(apiName)
+                .switchIfEmpty(Mono.error(new RuntimeException("API not found: " + apiName))) 
+                .flatMap(document -> {
+                    document.setApiConfiguration(configuration);
+                    return unifiedApiRepository.save(document);
+                });
+    }
 
 	/**
 	 * Deletes an API document from the repository.
@@ -331,4 +348,5 @@ public class UnifiedApiService {
 			throw new IllegalArgumentException("API version cannot be empty");
 		}
 	}
+
 }

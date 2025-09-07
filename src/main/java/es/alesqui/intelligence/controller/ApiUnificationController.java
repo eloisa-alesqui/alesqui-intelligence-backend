@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 
 import es.alesqui.intelligence.model.postman.PostmanDocument;
 import es.alesqui.intelligence.model.swagger.SwaggerDocument;
+import es.alesqui.intelligence.model.unified.ApiConfiguration;
 import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.service.PostmanService;
 import es.alesqui.intelligence.service.SwaggerService;
@@ -53,6 +54,28 @@ public class ApiUnificationController {
                 String errorMessage = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
                 return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error during unification: " + errorMessage));
             });
+    }
+    
+    /**
+     * Updates the runtime configuration for a specific unified API.
+     * The API is identified by its unique name.
+     *
+     * @param apiName The name of the API to configure.
+     * @param apiConfiguration The configuration object from the request body.
+     * @return A Mono with the updated UnifiedApiDocument.
+     */
+    @PutMapping("/{apiName}/configuration")
+    public Mono<ResponseEntity<UnifiedApiDocument>> updateApiConfiguration(
+            @PathVariable String apiName,
+            @RequestBody ApiConfiguration apiConfiguration) {
+        
+        log.info("Updating configuration for API: {}", apiName);
+        return unifiedApiService.updateConfiguration(apiName, apiConfiguration)
+                .map(ResponseEntity::ok) // On success, return 200 OK with the updated document
+                .onErrorResume(e -> {
+                    log.error("Failed to update configuration for API '{}': {}", apiName, e.getMessage());
+                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+                });
     }
     
     /**

@@ -179,7 +179,8 @@ public class UnifiedApiDocument {
     private boolean active = true;
     
     /**
-     * Execution configuration for API calls
+     * Runtime configuration for executing calls against this API.
+     * Includes details like base URL, authentication, headers, and timeouts.
      */
     @Field("apiConfiguration")
     @JsonProperty("apiConfiguration")
