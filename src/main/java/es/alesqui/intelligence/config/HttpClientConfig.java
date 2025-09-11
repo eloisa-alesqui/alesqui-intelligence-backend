@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.client.RestClient;
@@ -22,51 +23,27 @@ import reactor.netty.transport.ProxyProvider;
 
 /**
  * Configuration class for HTTP clients used throughout the application.
- * 
- * This class provides centralized configuration for:
- * - RestClient with synchronous HTTP operations
- * - WebClient with reactive HTTP operations
- * - Proxy configuration for both clients
- * - Custom interceptors and logging
- * - Timeout configurations
- * 
- * These HTTP clients can be reused across different parts of the application,
- * not just for AI chat functionality.
+ * This class now provides a pre-configured WebClient.Builder bean to ensure
+ * proxy settings are propagated to all services that use it.
  */
 @Configuration
 @Slf4j
 public class HttpClientConfig {
 
-    /**
-     * Custom request interceptor for handling HTTP requests.
-     */
     @Autowired
     private RequestInterceptor requestInterceptor;
 
-    /**
-     * Proxy server hostname injected from application properties.
-     * Expected property: proxy.host
-     */
     @Value("${proxy.host}")
     private String proxyHost;
     
-    /**
-     * Proxy server port injected from application properties.
-     * Expected property: proxy.port
-     */
     @Value("${proxy.port}")
     private int proxyPort;
 
     /**
-     * Creates and configures a RestClient bean with proxy support and custom interceptors.
-     * 
-     * The RestClient is configured with:
-     * - HTTP proxy using the configured host and port
-     * - Connection timeout of 30 seconds
-     * - Read timeout of 120 seconds
-     * - Custom request interceptor for request processing
-     * 
-     * @return a configured RestClient instance with proxy and timeout settings
+     * Creates and configures a RestClient bean with proxy support.
+     * This remains unchanged.
+     *
+     * @return a configured RestClient instance.
      */
     @Bean
     public RestClient restClient() {
@@ -87,28 +64,30 @@ public class HttpClientConfig {
     }
     
     /**
-     * Creates and configures a WebClient bean with reactive HTTP proxy support.
-     * 
-     * The WebClient is configured with:
-     * - Reactive HTTP proxy using Reactor Netty
-     * - Response timeout of 120 seconds
-     * - Request and response logging filters
-     * - Custom connector with proxy configuration
-     * 
-     * @return a configured WebClient instance with reactive proxy support and logging
+     * Creates a pre-configured, primary WebClient.Builder bean with proxy support.
+     * By marking this bean with @Primary, we instruct Spring to use this builder as the
+     * default choice across the application, resolving autoconfiguration conflicts.
+     *
+     * @return a configured WebClient.Builder instance with proxy support and logging.
      */
     @Bean
-    public WebClient webClient() {
+    @Primary
+    public WebClient.Builder webClientBuilder() {
+        // 1. Configure the underlying HttpClient with proxy settings
         HttpClient httpClient = HttpClient.create()
             .proxy(proxySpec -> proxySpec
                 .type(ProxyProvider.Proxy.HTTP)
                 .host(proxyHost)
-                .port(proxyPort))
-            .responseTimeout(Duration.ofSeconds(120));
+                .port(proxyPort)
+                .nonProxyHosts("localhost|127.0.0.1"))
+            .responseTimeout(Duration.ofSeconds(120)); // Default response timeout
         
-        ReactorClientHttpConnector connector = 
-            new ReactorClientHttpConnector(httpClient);
+        // 2. Create a connector with the configured HttpClient
+        ReactorClientHttpConnector connector = new ReactorClientHttpConnector(httpClient);
         
+        log.info("✅ WebClient.Builder is now configured to use proxy: {}:{}", proxyHost, proxyPort);
+
+        // 3. Return a WebClient.Builder pre-configured with the connector and filters
         return WebClient.builder()
             .clientConnector(connector)
             .filter(ExchangeFilterFunction.ofRequestProcessor(request -> {
@@ -119,7 +98,6 @@ public class HttpClientConfig {
             .filter(ExchangeFilterFunction.ofResponseProcessor(response -> {
                 log.info("✅ WebClient response: {}", response.statusCode());
                 return Mono.just(response);
-            }))
-            .build();
+            }));
     }
 }

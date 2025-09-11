@@ -1,396 +1,200 @@
 package es.alesqui.intelligence.service.api;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpHeaders;
+import es.alesqui.intelligence.dto.chat.request.ApiCallRequest;
+import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
+import es.alesqui.intelligence.model.unified.ApiConfiguration;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-
-import es.alesqui.intelligence.dto.chat.request.ApiCallRequest;
-import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
-import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Service responsible for executing dynamic API calls.
+ * It orchestrates request validation, dynamic client configuration (including OAuth 2.0 token fetching),
+ * execution with retry logic, and comprehensive error handling.
+ */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class ApiExecutionService {
 
-  private final WebClient.Builder webClientBuilder;
-  private final ApiConfigurationService apiConfigurationService;
-  private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
+    private final WebClient.Builder webClientBuilder;
+    private final ApiConfigurationService apiConfigurationService;
+    private final OAuth2TokenService oauth2TokenService;
 
-  @Autowired
-  public ApiExecutionService(WebClient.Builder webClientBuilder, 
-                            ApiConfigurationService apiConfigurationService) {
-      this.webClientBuilder = webClientBuilder;
-      this.apiConfigurationService = apiConfigurationService;
-  }
+    /**
+     * Executes an API call with full error handling and retry logic.
+     * This is the main entry point for the service.
+     *
+     * @param request The request DTO containing all necessary call details.
+     * @return A Mono emitting an ApiCallResponse.
+     */
+    public Mono<ApiCallResponse> executeApiCall(ApiCallRequest request) {
+        long startTime = System.currentTimeMillis();
 
-  /**
-   * Execute API call with full error handling and retry logic
-   */
-  public Mono<ApiCallResponse> executeApiCall(ApiCallRequest request) {
-      long startTime = System.currentTimeMillis();
+        return validateRequest(request)
+                .flatMap(validatedRequest -> performApiCall(validatedRequest, startTime))
+                .onErrorResume(throwable -> handleError(throwable, request, startTime));
+    }
 
-      return validateRequest(request)
-              .flatMap(this::buildWebClient)
-              .flatMap(webClient -> performApiCall(webClient, request, startTime))
-              .onErrorResume(throwable -> handleError(throwable, request, startTime));
-  }
+    /**
+     * Validates the incoming API call request for required fields.
+     */
+    private Mono<ApiCallRequest> validateRequest(ApiCallRequest request) {
+        if (request.getApiName() == null || request.getApiName().trim().isEmpty()) {
+            return Mono.error(new IllegalArgumentException("API name is required"));
+        }
+        if (request.getEndpoint() == null || request.getEndpoint().trim().isEmpty()) {
+            return Mono.error(new IllegalArgumentException("Endpoint is required"));
+        }
+        if (request.getHttpMethod() == null) {
+            return Mono.error(new IllegalArgumentException("HTTP method is required"));
+        }
+        return Mono.just(request);
+    }
 
-  /**
-   * Validate the API request
-   */
-  private Mono<ApiCallRequest> validateRequest(ApiCallRequest request) {
-      if (request.getApiName() == null || request.getApiName().trim().isEmpty()) {
-          return Mono.error(new IllegalArgumentException("API name is required"));
-      }
+    /**
+     * Performs the actual API call using a dynamically configured WebClient.
+     * This method is responsible for assembling all parts of the request, including the final auth headers.
+     */
+    private Mono<ApiCallResponse> performApiCall(ApiCallRequest request, long startTime) {
+        // 1. Fetch the entire configuration object once.
+        ApiConfiguration config = apiConfigurationService.getConfiguration(request.getApiName());
+        boolean loggingEnabled = config.isEnableLogging();
 
-      if (request.getEndpoint() == null || request.getEndpoint().trim().isEmpty()) {
-          return Mono.error(new IllegalArgumentException("Endpoint is required"));
-      }
+        if (loggingEnabled) {
+            log.info("Executing {} {} for API: {} (timeout: {}s, retries: {})",
+                    request.getHttpMethod(), request.getEndpoint(),
+                    request.getApiName(), config.getTimeoutSeconds(), config.getMaxRetries());
+        }
 
-      if (request.getHttpMethod() == null) {
-          return Mono.error(new IllegalArgumentException("HTTP method is required"));
-      }
+        // 2. Build the WebClient for this specific request.
+        WebClient client = webClientBuilder.baseUrl(apiConfigurationService.getBaseUrl(request.getApiName())).build();
 
-      return Mono.just(request);
-  }
+        WebClient.RequestBodySpec requestSpec = client
+                .method(HttpMethod.valueOf(request.getHttpMethod().toUpperCase()))
+                .uri(uriBuilder -> {
+                	uriBuilder.path(request.getPath());
+                    // Add query parameters from the request itself
+                    if (request.getParameters() != null && isQueryParamMethod(request.getHttpMethod())) {
+                        request.getParameters().forEach((key, value) -> {
+                            if (value != null) uriBuilder.queryParam(key, value.toString());
+                        });
+                    }
+                    // Add API Key to query if configured to do so
+                    if ("api_key".equals(config.getAuth().getAuthType()) && "query".equalsIgnoreCase(config.getAuth().getAddApiKeyTo())) {
+                       uriBuilder.queryParam(config.getAuth().getApiKeyName(), config.getAuth().getApiKey());
+                    }
+                    return uriBuilder.build();
+                });
 
-  /**
-   * Build or get cached WebClient for the API
-   */
-  private Mono<WebClient> buildWebClient(ApiCallRequest request) {
-      return Mono.fromCallable(() -> {
-          String cacheKey = request.getApiName();
+        // 3. Add all headers, orchestrating static and dynamic ones.
+        // Get static headers (Basic, static Bearer, API Key in header)
+        Map<String, String> headers = apiConfigurationService.getHeaders(request.getApiName());
 
-          return webClientCache.computeIfAbsent(cacheKey, key -> {
-              WebClient.Builder builder = webClientBuilder.clone();
+        // If auth type is OAuth2, fetch the dynamic token and add the final header
+        if ("oauth2_client_credentials".equals(config.getAuth().getAuthType())) {
+            String token = oauth2TokenService.getAccessToken(request.getApiName());
+            if (token != null) {
+                headers.put("Authorization", "Bearer " + token);
+            } else {
+                log.warn("Could not retrieve OAuth 2.0 token for API '{}'. The call may fail.", request.getApiName());
+            }
+        }
+        
+        // Apply the final map of headers to the request
+        headers.forEach(requestSpec::header);
+        
+        // Apply any headers passed in the original request
+        if (request.getHeaders() != null) {
+            request.getHeaders().forEach(requestSpec::header);
+        }
 
-              // Set base URL from configuration service
-              String baseUrl = apiConfigurationService.getBaseUrl(request.getApiName());
-              if (baseUrl != null && !baseUrl.isEmpty()) {
-                  builder.baseUrl(baseUrl);
-              }
+        // 4. Set the body if applicable
+        Mono<String> responseMono;
+        if (request.getParameters() != null && !isQueryParamMethod(request.getHttpMethod())) {
+            responseMono = requestSpec.bodyValue(request.getParameters()).retrieve().bodyToMono(String.class);
+        } else {
+            responseMono = requestSpec.retrieve().bodyToMono(String.class);
+        }
 
-              // Set default headers
-              builder.defaultHeaders(headers -> {
-                  headers.set(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-                  headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
-                  headers.set(HttpHeaders.USER_AGENT, "AlesquiIntelligence-Client/1.0");
+        // 5. Execute with timeout and retry logic from the configuration.
+        return responseMono
+                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                .retryWhen(Retry.backoff(config.getMaxRetries(), Duration.ofMillis(500))
+                        .filter(this::isRetryableException))
+                .map(responseBody -> buildSuccessResponse(responseBody, request, startTime))
+                .doOnError(error -> {
+                    if (loggingEnabled) {
+                        log.error("API call to '{}' failed: {}", request.getApiName(), error.getMessage());
+                    }
+                });
+    }
 
-                  // Add API-specific headers from configuration
-                  Map<String, String> apiHeaders = apiConfigurationService.getHeaders(request.getApiName());
-                  if (apiHeaders != null && !apiHeaders.isEmpty()) {
-                      apiHeaders.forEach(headers::set);
-                  }
+    /**
+     * Handles errors that occur during the API execution pipeline.
+     */
+    private Mono<ApiCallResponse> handleError(Throwable throwable, ApiCallRequest request, long startTime) {
+        long executionTime = System.currentTimeMillis() - startTime;
+        log.error("API execution error for '{}': {}", request.getApiName(), throwable.getMessage(), throwable);
 
-                  // Add authentication headers if required
-                  if (apiConfigurationService.isAuthRequired(request.getApiName())) {
-                      String authToken = apiConfigurationService.getAuthToken(request.getApiName());
-                      String authType = apiConfigurationService.getAuthType(request.getApiName());
-                      
-                      if (authToken != null && !authToken.isEmpty()) {
-                          addAuthenticationHeader(headers, authType, authToken);
-                      }
-                  }
-              });
+        ApiCallResponse failureResponse;
+        if (throwable instanceof WebClientResponseException) {
+            WebClientResponseException webEx = (WebClientResponseException) throwable;
+            failureResponse = ApiCallResponse.failure(
+                    "API call failed: " + webEx.getMessage(),
+                    webEx.getStatusCode().value(),
+                    request.getConversationId()
+            ).withRawResponse(webEx.getResponseBodyAsString());
+        } else if (throwable instanceof java.util.concurrent.TimeoutException) {
+            failureResponse = ApiCallResponse.failure("API call timeout", 408, request.getConversationId());
+        } else {
+            failureResponse = ApiCallResponse.failure("Unexpected error: " + throwable.getMessage(), 500, request.getConversationId());
+        }
 
-              return builder
-                      .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
-                      .build();
-          });
-      });
-  }
+        return Mono.just(failureResponse
+                .withApiDetails(request.getApiName(), request.getEndpoint(), request.getHttpMethod())
+                .withExecutionTime(executionTime));
+    }
+    
+    /**
+     * Builds a standardized success response object.
+     */
+    private ApiCallResponse buildSuccessResponse(String responseBody, ApiCallRequest request, long startTime) {
+        long executionTime = System.currentTimeMillis() - startTime;
+        if (apiConfigurationService.isLoggingEnabled(request.getApiName())) {
+            log.info("API call for '{}' completed in {}ms", request.getApiName(), executionTime);
+        }
+        return ApiCallResponse.success(Map.of("response", responseBody), 200, request.getConversationId())
+                .withApiDetails(request.getApiName(), request.getEndpoint(), request.getHttpMethod())
+                .withExecutionTime(executionTime)
+                .withRawResponse(responseBody);
+    }
+    
+    /**
+     * Determines if an exception is suitable for a retry attempt.
+     */
+    private boolean isRetryableException(Throwable throwable) {
+        if (throwable instanceof WebClientResponseException) {
+            int statusCode = ((WebClientResponseException) throwable).getStatusCode().value();
+            // Retry on 5xx server errors, 408 Request Timeout, or 429 Too Many Requests.
+            return statusCode >= 500 || statusCode == 408 || statusCode == 429;
+        }
+        // Retry on network-level issues.
+        return throwable instanceof java.io.IOException;
+    }
 
-  /**
-   * Add authentication header based on auth type
-   */
-  private void addAuthenticationHeader(HttpHeaders headers, String authType, String authToken) {
-      switch (authType.toLowerCase()) {
-          case "bearer":
-              headers.setBearerAuth(authToken);
-              break;
-          case "basic":
-              headers.set(HttpHeaders.AUTHORIZATION, "Basic " + authToken);
-              break;
-          case "apikey":
-              headers.set("X-API-Key", authToken);
-              break;
-          case "custom":
-              // For custom auth, assume the token already includes the prefix
-              headers.set(HttpHeaders.AUTHORIZATION, authToken);
-              break;
-          default:
-              // Default to Bearer if type is unknown
-              headers.setBearerAuth(authToken);
-              break;
-      }
-  }
-
-  /**
-   * Perform the actual API call
-   */
-  private Mono<ApiCallResponse> performApiCall(WebClient webClient, ApiCallRequest request, long startTime) {
-      // Get configuration values
-      int timeoutSeconds = getTimeoutFromRequest(request);
-      int maxRetries = apiConfigurationService.getMaxRetries(request.getApiName());
-      boolean loggingEnabled = apiConfigurationService.isLoggingEnabled(request.getApiName());
-
-      // Log request if enabled
-      if (loggingEnabled) {
-          log.info("Executing {} {} for API: {} (timeout: {}s, retries: {})", 
-                  request.getHttpMethod(), request.getEndpoint(), 
-                  request.getApiName(), timeoutSeconds, maxRetries);
-      }
-
-      WebClient.RequestBodySpec requestSpec = webClient
-              .method(HttpMethod.valueOf(request.getHttpMethod().toUpperCase()))
-              .uri(uriBuilder -> {
-                  uriBuilder.path(request.getPath());
-
-                  // Add query parameters for GET and DELETE requests
-                  Map<String, Object> queryParams = getQueryParameters(request);
-                  if (!queryParams.isEmpty()) {
-                      queryParams.forEach((key, value) -> {
-                          if (value != null) {
-                              uriBuilder.queryParam(key, value.toString());
-                          }
-                      });
-                  }
-
-                  return uriBuilder.build();
-              });
-
-      // Add request headers
-      if (request.hasHeaders()) {
-          request.getHeaders().forEach(requestSpec::header);
-      }
-
-      // Determine if we need to send a body
-      Map<String, Object> bodyParams = getBodyParameters(request);
-      Mono<String> responseMono;
-
-      if (!bodyParams.isEmpty()) {
-          // Send body for POST/PUT/PATCH requests
-          responseMono = requestSpec.bodyValue(bodyParams).retrieve().bodyToMono(String.class);
-      } else {
-          // No body for GET/DELETE requests
-          responseMono = requestSpec.retrieve().bodyToMono(String.class);
-      }
-
-      return responseMono
-              .timeout(Duration.ofSeconds(timeoutSeconds))
-              .retryWhen(Retry.backoff(maxRetries, Duration.ofMillis(500))
-                      .filter(this::isRetryableException))
-              .map(responseBody -> {
-                  long executionTime = System.currentTimeMillis() - startTime;
-
-                  if (loggingEnabled) {
-                      log.info("API call completed for {} in {}ms", request.getApiName(), executionTime);
-                  }
-
-                  return ApiCallResponse
-                          .success(parseResponseBody(responseBody), 200, request.getConversationId())
-                          .withApiDetails(request.getApiName(), request.getEndpoint(), request.getHttpMethod())
-                          .withExecutionTime(executionTime)
-                          .withRawResponse(responseBody);
-              })
-              .doOnError(error -> {
-                  if (loggingEnabled) {
-                      log.error("API call failed: {} {} - {}", 
-                              request.getApiName(), request.getEndpoint(), error.getMessage());
-                  }
-              });
-  }
-
-  /**
-   * Separate query parameters from body parameters based on HTTP method
-   */
-  private Map<String, Object> getQueryParameters(ApiCallRequest request) {
-      if (request.getHttpMethod().equalsIgnoreCase("GET") || 
-          request.getHttpMethod().equalsIgnoreCase("DELETE")) {
-          return request.getParameters() != null ? request.getParameters() : new HashMap<>();
-      }
-      return new HashMap<>();
-  }
-
-  /**
-   * Get body parameters for POST/PUT/PATCH requests
-   */
-  private Map<String, Object> getBodyParameters(ApiCallRequest request) {
-      if (request.getHttpMethod().equalsIgnoreCase("POST") || 
-          request.getHttpMethod().equalsIgnoreCase("PUT") ||
-          request.getHttpMethod().equalsIgnoreCase("PATCH")) {
-          return request.getParameters() != null ? request.getParameters() : new HashMap<>();
-      }
-      return new HashMap<>();
-  }
-
-  /**
-   * Get timeout from request or configuration service
-   */
-  private int getTimeoutFromRequest(ApiCallRequest request) {
-      // 1. Use request timeout if specified and valid
-      if (request.getTimeoutMs() > 0) {
-          int timeoutSeconds = Math.max(request.getTimeoutMs() / 1000, 1);
-          return Math.min(timeoutSeconds, 300); // Max 5 minutes
-      }
-
-      // 2. Get timeout from configuration service
-      try {
-          int configTimeout = apiConfigurationService.getTimeout(request.getApiName());
-          return Math.max(configTimeout, 1);
-      } catch (Exception e) {
-          log.warn("Failed to get timeout from configuration for {}: {}", 
-                  request.getApiName(), e.getMessage());
-      }
-
-      // 3. Use default timeout based on HTTP method
-      return getDefaultTimeoutByMethod(request.getHttpMethod());
-  }
-
-  /**
-   * Get default timeout by HTTP method
-   */
-  private int getDefaultTimeoutByMethod(String httpMethod) {
-      switch (httpMethod.toUpperCase()) {
-          case "GET":
-          case "HEAD":
-          case "OPTIONS":
-              return 15;
-          case "POST":
-          case "PUT":
-          case "PATCH":
-              return 30;
-          case "DELETE":
-              return 20;
-          default:
-              return apiConfigurationService.getDefaultTimeout();
-      }
-  }
-
-  /**
-   * Handle errors during API execution
-   */
-  private Mono<ApiCallResponse> handleError(Throwable throwable, ApiCallRequest request, long startTime) {
-      long executionTime = System.currentTimeMillis() - startTime;
-      boolean loggingEnabled = apiConfigurationService.isLoggingEnabled(request.getApiName());
-
-      if (loggingEnabled) {
-          log.error("API execution error for {}: {}", request.getApiName(), throwable.getMessage(), throwable);
-      }
-
-      if (throwable instanceof WebClientResponseException) {
-          WebClientResponseException webEx = (WebClientResponseException) throwable;
-
-          return Mono.just(ApiCallResponse
-                  .failure("API call failed: " + webEx.getMessage(), 
-                          webEx.getStatusCode().value(), 
-                          request.getConversationId())
-                  .withApiDetails(request.getApiName(), request.getEndpoint(), request.getHttpMethod())
-                  .withExecutionTime(executionTime)
-                  .withRawResponse(webEx.getResponseBodyAsString()));
-      }
-
-      if (throwable instanceof java.util.concurrent.TimeoutException ||
-          throwable.getCause() instanceof java.util.concurrent.TimeoutException) {
-          return Mono.just(ApiCallResponse
-                  .failure("API call timeout", 408, request.getConversationId())
-                  .withApiDetails(request.getApiName(), request.getEndpoint(), request.getHttpMethod())
-                  .withExecutionTime(executionTime));
-      }
-
-      return Mono.just(ApiCallResponse
-              .failure("Unexpected error: " + throwable.getMessage(), 500, request.getConversationId())
-              .withApiDetails(request.getApiName(), request.getEndpoint(), request.getHttpMethod())
-              .withExecutionTime(executionTime));
-  }
-
-  /**
-   * Parse response body to Map
-   */
-  private Map<String, Object> parseResponseBody(String responseBody) {
-      try {
-          // Simple JSON-like parsing - you can use Jackson ObjectMapper here for better parsing
-          if (responseBody == null || responseBody.trim().isEmpty()) {
-              return Map.of(
-                      "message", "Empty response",
-                      "timestamp", System.currentTimeMillis(),
-                      "success", true
-              );
-          }
-
-          return Map.of(
-                  "response", responseBody,
-                  "timestamp", System.currentTimeMillis(),
-                  "success", true
-          );
-      } catch (Exception e) {
-          log.warn("Failed to parse response body: {}", e.getMessage());
-          return Map.of(
-                  "error", "Failed to parse response",
-                  "rawResponse", responseBody != null ? responseBody : "",
-                  "success", false
-          );
-      }
-  }
-
-  /**
-   * Check if exception is retryable
-   */
-  private boolean isRetryableException(Throwable throwable) {
-      if (throwable instanceof WebClientResponseException) {
-          WebClientResponseException webEx = (WebClientResponseException) throwable;
-          int statusCode = webEx.getStatusCode().value();
-
-          // Retry on server errors (5xx) and some client errors
-          return statusCode >= 500 || statusCode == 429 || statusCode == 408;
-      }
-
-      return throwable instanceof java.net.ConnectException || 
-             throwable instanceof java.net.SocketTimeoutException ||
-             throwable instanceof java.io.IOException;
-  }
-
-  /**
-   * Clear WebClient cache (useful for configuration changes)
-   */
-  public void clearCache() {
-      webClientCache.clear();
-      log.info("WebClient cache cleared");
-  }
-
-  /**
-   * Clear cache for specific API
-   */
-  public void clearCacheForApi(String apiName) {
-      webClientCache.remove(apiName);
-      log.info("WebClient cache cleared for API: {}", apiName);
-  }
-
-  /**
-   * Get cached WebClient count
-   */
-  public int getCacheSize() {
-      return webClientCache.size();
-  }
-
-  /**
-   * Get cache statistics
-   */
-  public Map<String, Object> getCacheStats() {
-      return Map.of(
-              "cacheSize", webClientCache.size(),
-              "cachedApis", webClientCache.keySet()
-      );
-  }
+    /**
+     * Checks if the HTTP method typically uses query parameters instead of a body.
+     */
+    private boolean isQueryParamMethod(String httpMethod) {
+        return "GET".equalsIgnoreCase(httpMethod) || "DELETE".equalsIgnoreCase(httpMethod);
+    }
 }

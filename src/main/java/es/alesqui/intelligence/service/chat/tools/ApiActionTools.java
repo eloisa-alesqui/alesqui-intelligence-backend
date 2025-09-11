@@ -254,7 +254,7 @@ public class ApiActionTools {
                 .path(resolvedPath)
                 .headers(new HashMap<>())
                 .httpMethod(endpoint.getMethod())
-                .parameters(parameters)
+                .parameters(remainingParameters)
                 .conversationId(conversationId)
                 .build();
         
