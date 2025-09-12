@@ -3,12 +3,13 @@ package es.alesqui.intelligence.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.Nullable;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import es.alesqui.intelligence.model.postman.PostmanDocument;
-import es.alesqui.intelligence.model.swagger.SwaggerDocument;
-import es.alesqui.intelligence.model.unified.ApiConfiguration;
-import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.api_spec.postman.PostmanDocument;
+import es.alesqui.intelligence.model.api_spec.swagger.SwaggerDocument;
+import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.service.PostmanService;
 import es.alesqui.intelligence.service.SwaggerService;
 import es.alesqui.intelligence.service.UnifiedApiService;
@@ -36,6 +37,7 @@ public class ApiUnificationController {
      * @return ResponseEntity containing the result of the operation.
      */
     @PostMapping("/unify")
+    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<String>> unifyAndSaveApiDocuments(@RequestParam String apiName) {
         log.info("Starting unification process for API: {}", apiName);
 
@@ -65,6 +67,7 @@ public class ApiUnificationController {
      * @return A Mono with the updated UnifiedApiDocument.
      */
     @PutMapping("/{apiName}/configuration")
+    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<UnifiedApiDocument>> updateApiConfiguration(
             @PathVariable String apiName,
             @RequestBody ApiConfiguration apiConfiguration) {
@@ -84,6 +87,7 @@ public class ApiUnificationController {
      * @return a Flux containing all Unified Api documents
      */
     @GetMapping
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Flux<UnifiedApiDocument> findAll() {
         log.info("Fetching all Unified Api documents...");
         return unifiedApiService.findAll()
@@ -98,6 +102,7 @@ public class ApiUnificationController {
      * @return a Mono containing the Unified Api document if found, or a 404 response if not found
      */
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Mono<ResponseEntity<UnifiedApiDocument>> findById(@PathVariable String id) {
         log.info("Fetching Unified Api document with ID: {}", id);
         return unifiedApiService.findById(id)
@@ -113,6 +118,7 @@ public class ApiUnificationController {
      * @return a Mono containing the Unified Api document if found, or a 404 response if not found
      */
     @GetMapping("/by-name")
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Mono<ResponseEntity<UnifiedApiDocument>> findByName(@RequestParam String name) {
         log.info("Fetching Unified Api document with name: {}", name);
         return unifiedApiService.findByName(name)

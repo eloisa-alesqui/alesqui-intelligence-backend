@@ -3,7 +3,7 @@ package es.alesqui.intelligence.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import es.alesqui.intelligence.config.properties.PostmanCollectionProperties;
-import es.alesqui.intelligence.model.swagger.SwaggerDocument;
+import es.alesqui.intelligence.model.api_spec.swagger.SwaggerDocument;
 import es.alesqui.intelligence.repository.SwaggerRepository;
 import es.alesqui.intelligence.util.ValidationChain;
 import io.swagger.v3.oas.models.OpenAPI;

@@ -6,9 +6,9 @@ import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import es.alesqui.intelligence.model.postman.QueryParam;
-import es.alesqui.intelligence.model.postman.Url;
-import es.alesqui.intelligence.model.postman.Variable;
+import es.alesqui.intelligence.model.api_spec.postman.QueryParam;
+import es.alesqui.intelligence.model.api_spec.postman.Url;
+import es.alesqui.intelligence.model.api_spec.postman.Variable;
 
 import java.io.IOException;
 import java.util.ArrayList;

@@ -1,7 +1,7 @@
 package es.alesqui.intelligence.service.api;
 
-import es.alesqui.intelligence.model.unified.ApiConfiguration;
-import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

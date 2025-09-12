@@ -5,9 +5,9 @@ import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
-import es.alesqui.intelligence.config.ChatConfiguration;
+import es.alesqui.intelligence.config.ChatConfig;
 import es.alesqui.intelligence.dto.chat.response.ClassificationResponse;
-import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,7 +46,7 @@ public class DynamicApiQueryClassifierService {
 
     private final SpringAIService springAIService;
     private final UnifiedApiService unifiedApiService;
-    private final ChatConfiguration chatConfig;
+    private final ChatConfig chatConfig;
 
     private String cachedClassificationPrompt;
     private Instant lastPromptUpdate;

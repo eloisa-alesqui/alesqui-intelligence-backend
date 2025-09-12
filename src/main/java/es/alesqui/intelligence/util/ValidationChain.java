@@ -7,7 +7,7 @@ import java.util.List;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Component;
 
-import es.alesqui.intelligence.model.postman.Collection;
+import es.alesqui.intelligence.model.api_spec.postman.Collection;
 import reactor.core.publisher.Mono;
 
 /**

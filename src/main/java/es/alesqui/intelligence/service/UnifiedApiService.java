@@ -11,8 +11,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import es.alesqui.intelligence.model.unified.ApiConfiguration;
-import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;

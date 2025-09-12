@@ -1,7 +1,8 @@
 package es.alesqui.intelligence.service.api;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import es.alesqui.intelligence.model.unified.ApiConfiguration;
+
+import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -5,7 +5,7 @@ import org.springframework.data.mongodb.repository.Query;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.stereotype.Repository;
 
-import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 

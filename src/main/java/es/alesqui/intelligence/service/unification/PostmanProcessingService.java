@@ -4,13 +4,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.annotation.HandleApiUnificationException;
-import es.alesqui.intelligence.model.postman.Auth;
-import es.alesqui.intelligence.model.postman.Collection;
-import es.alesqui.intelligence.model.postman.Info;
-import es.alesqui.intelligence.model.postman.Url;
-import es.alesqui.intelligence.model.postman.Variable;
-import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
-import es.alesqui.intelligence.model.unified.UnifiedAuthentication;
+import es.alesqui.intelligence.model.api_spec.postman.Auth;
+import es.alesqui.intelligence.model.api_spec.postman.Collection;
+import es.alesqui.intelligence.model.api_spec.postman.Info;
+import es.alesqui.intelligence.model.api_spec.postman.Url;
+import es.alesqui.intelligence.model.api_spec.postman.Variable;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedAuthentication;
 import es.alesqui.intelligence.util.UnificationUtils;
 
 import java.util.*;

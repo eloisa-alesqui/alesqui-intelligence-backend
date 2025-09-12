@@ -2,7 +2,7 @@ package es.alesqui.intelligence.service.api;
 
 import es.alesqui.intelligence.dto.chat.request.ApiCallRequest;
 import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
-import es.alesqui.intelligence.model.unified.ApiConfiguration;
+import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;

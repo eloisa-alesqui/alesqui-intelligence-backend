@@ -4,9 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import es.alesqui.intelligence.config.ChatConfiguration;
+import es.alesqui.intelligence.config.ChatConfig;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
 import es.alesqui.intelligence.service.chat.ChatOrchestrationService;
@@ -21,7 +22,7 @@ import java.util.UUID;
 public class ChatController {
 
     private final ChatOrchestrationService chatOrchestrationService;
-    private final ChatConfiguration chatConfig;
+    private final ChatConfig chatConfig;
 
     /**
      * Processes incoming chat messages and returns AI-generated responses asynchronously.
@@ -31,6 +32,7 @@ public class ChatController {
      * @return A reactive Mono containing the ResponseEntity with the AI-generated chat response or error details.
      */
     @PostMapping("/message")
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Mono<ResponseEntity<ChatResponse>> sendMessage(@RequestBody ChatRequest request) {
         
         // Ensure a conversation ID exists for the request.

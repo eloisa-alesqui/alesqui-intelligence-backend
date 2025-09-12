@@ -23,7 +23,7 @@
 		<testcontainers.version>1.19.3</testcontainers.version>
 		<wiremock.version>3.13.1</wiremock.version>
 		<!-- Security versions -->
-		<jjwt.version>0.12.3</jjwt.version>
+		<jjwt.version>0.13.0</jjwt.version>
 		<!-- Documentation -->
 		<springdoc.version>2.3.0</springdoc.version>
 	</properties>

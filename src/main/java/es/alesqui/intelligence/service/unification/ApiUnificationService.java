@@ -11,12 +11,12 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.annotation.HandleApiUnificationException;
-import es.alesqui.intelligence.config.ChatConfiguration;
-import es.alesqui.intelligence.model.postman.Collection;
-import es.alesqui.intelligence.model.postman.PostmanDocument;
-import es.alesqui.intelligence.model.swagger.SwaggerDocument;
-import es.alesqui.intelligence.model.unified.UnifiedApiDocument;
-import es.alesqui.intelligence.model.unified.UnifiedEndpoint;
+import es.alesqui.intelligence.config.ChatConfig;
+import es.alesqui.intelligence.model.api_spec.postman.Collection;
+import es.alesqui.intelligence.model.api_spec.postman.PostmanDocument;
+import es.alesqui.intelligence.model.api_spec.swagger.SwaggerDocument;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
 import es.alesqui.intelligence.service.chat.SpringAIService;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +33,7 @@ public class ApiUnificationService {
     private final EndpointUnificationService endpointUnificationService;
     private final UnifiedApiRepository repository;
     private final SpringAIService springAIService;
-    private final ChatConfiguration chatConfig;
+    private final ChatConfig chatConfig;
 
     /**
      * Unifies a Swagger document with an optional Postman document into a single UnifiedApiDocument.

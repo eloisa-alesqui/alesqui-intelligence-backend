@@ -3,7 +3,7 @@ package es.alesqui.intelligence.repository;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.stereotype.Repository;
 
-import es.alesqui.intelligence.model.postman.PostmanDocument;
+import es.alesqui.intelligence.model.api_spec.postman.PostmanDocument;
 import reactor.core.publisher.Mono;
 
 /**

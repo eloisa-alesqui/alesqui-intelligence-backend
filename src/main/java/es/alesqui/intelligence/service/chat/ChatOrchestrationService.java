@@ -7,7 +7,7 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import es.alesqui.intelligence.config.ChatConfiguration;
+import es.alesqui.intelligence.config.ChatConfig;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
@@ -28,7 +28,7 @@ public class ChatOrchestrationService {
 
     private final DynamicApiQueryClassifierService classifierService;
     private final SpringAIService springAIService;
-    private final ChatConfiguration chatConfig;
+    private final ChatConfig chatConfig;
 
     /**
      * Main entry point for processing chat requests asynchronously.

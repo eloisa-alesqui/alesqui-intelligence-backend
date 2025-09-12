@@ -3,7 +3,7 @@ package es.alesqui.intelligence.repository;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.stereotype.Repository;
 
-import es.alesqui.intelligence.model.swagger.SwaggerDocument;
+import es.alesqui.intelligence.model.api_spec.swagger.SwaggerDocument;
 import reactor.core.publisher.Mono;
 
 /**

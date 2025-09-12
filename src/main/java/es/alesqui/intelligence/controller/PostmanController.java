@@ -7,10 +7,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import es.alesqui.intelligence.model.postman.Collection;
-import es.alesqui.intelligence.model.postman.PostmanDocument;
+import es.alesqui.intelligence.model.api_spec.postman.Collection;
+import es.alesqui.intelligence.model.api_spec.postman.PostmanDocument;
 import es.alesqui.intelligence.service.PostmanService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -38,6 +39,7 @@ public class PostmanController {
      * @return a Flux containing all Postman documents
      */
     @GetMapping(produces = MediaType.APPLICATION_NDJSON_VALUE)
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Flux<PostmanDocument> findAll() {
         log.info("Fetching all Postman documents...");
         return postmanService.findAll()
@@ -52,6 +54,7 @@ public class PostmanController {
      * @return a Mono containing the Postman document if found, or a 404 response if not found
      */
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Mono<ResponseEntity<PostmanDocument>> findById(@PathVariable String id) {
         log.info("Fetching Postman document with ID: {}", id);
         return postmanService.findById(id)
@@ -67,6 +70,7 @@ public class PostmanController {
      * @return a Mono containing the Postman document if found, or a 404 response if not found
      */
     @GetMapping("/by-name")
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Mono<ResponseEntity<PostmanDocument>> findByName(@RequestParam String name) {
         log.info("Fetching Postman document with name: {}", name);
         return postmanService.findByName(name)
@@ -82,6 +86,7 @@ public class PostmanController {
      * @return a Mono containing the saved document
      */
     @PostMapping
+    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<Collection>> save(@Valid @RequestBody PostmanDocument document) {
         boolean isNew = document.getId() == null || document.getId().isEmpty();
         log.info("Saving Postman document: {}", isNew ? "New document" : "Updating document with ID " + document.getId());
@@ -97,6 +102,7 @@ public class PostmanController {
      * @return a Mono confirming the deletion
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<Void>> deleteById(@PathVariable String id) {
         log.info("Deleting Postman document with ID: {}", id);
         return postmanService.deleteById(id)
@@ -115,6 +121,7 @@ public class PostmanController {
      * @return a Mono containing the imported collection
      */
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<Collection>> importFromFile(
             @RequestPart("file") FilePart file,
             @RequestPart("name") String name,
@@ -138,6 +145,7 @@ public class PostmanController {
      * @return a Mono containing the imported PostmanDocument
      */
     @PostMapping(value = "/import-content", consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE})
+    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<PostmanDocument>> importFromContent(
             @RequestBody String content,
             @RequestParam("name") String name,

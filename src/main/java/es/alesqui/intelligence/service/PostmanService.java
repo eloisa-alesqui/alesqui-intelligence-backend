@@ -6,9 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import es.alesqui.intelligence.config.properties.PostmanCollectionProperties;
-import es.alesqui.intelligence.model.postman.Collection;
-import es.alesqui.intelligence.model.postman.Info;
-import es.alesqui.intelligence.model.postman.PostmanDocument;
+import es.alesqui.intelligence.model.api_spec.postman.Collection;
+import es.alesqui.intelligence.model.api_spec.postman.Info;
+import es.alesqui.intelligence.model.api_spec.postman.PostmanDocument;
 import es.alesqui.intelligence.repository.PostmanRepository;
 import es.alesqui.intelligence.util.ValidationChain;
 

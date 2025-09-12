@@ -4,6 +4,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,6 +30,7 @@ public class FileDownloadController {
      * or an appropriate error response (e.g., not found, bad request, internal server error).
      */
     @GetMapping("/download/{filename:.+}")
+    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public ResponseEntity<Resource> downloadFile(@PathVariable String filename) {
         try {
             Path filePath = tempFileDir.resolve(filename).normalize();
