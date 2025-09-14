@@ -1,6 +1,7 @@
 package es.alesqui.intelligence.security;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -14,45 +15,78 @@ import reactor.core.publisher.Mono;
 /**
  * A reactive WebFilter for JWT authentication.
  *
- * This filter intercepts all requests, extracts the JWT from the 'Authorization' header,
- * validates it, and sets the authentication context for Spring Security in a
- * non-blocking way.
+ * This filter intercepts all requests, extracts the JWT from the
+ * 'Authorization' header, validates it, and sets the authentication context for
+ * Spring Security in a non-blocking way.
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class JwtAuthenticationWebFilter implements WebFilter {
 
-    private final JwtService jwtService;
-    private final ReactiveUserDetailsService userDetailsService;
+	private final JwtService jwtService;
+	private final ReactiveUserDetailsService userDetailsService;
 
-    @Override
-    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+	@Override
+	public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+		String path = exchange.getRequest().getPath().value();
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return chain.filter(exchange); // Continue without authentication
-        }
+		log.debug("Processing JWT authentication for path: {}", path);
 
-        String token = authHeader.substring(7);
-        String username = jwtService.extractUsername(token);
+		// Skip JWT processing for public endpoints
+		if (path.startsWith("/api/auth/")) {
+			log.debug("Skipping JWT authentication for public auth endpoint: {}", path);
+			return chain.filter(exchange);
+		}
 
-        if (username == null) {
-            return chain.filter(exchange); // Invalid token
-        }
+		String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
 
-        // The whole process is a reactive chain
-        return userDetailsService.findByUsername(username)
-                .filter(userDetails -> jwtService.isTokenValid(token, userDetails))
-                .flatMap(userDetails -> {
-                    UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                            userDetails,
-                            null,
-                            userDetails.getAuthorities()
-                    );
-                    // Set the authentication in the reactive context
-                    return chain.filter(exchange)
-                            .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication));
-                })
-                .switchIfEmpty(chain.filter(exchange)); // If user not found or token invalid, continue without auth
-    }
+		if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+			log.debug("No valid Authorization header found for path: {}", path);
+			return chain.filter(exchange); // Continue without authentication
+		}
+
+		String token = authHeader.substring(7);
+		String username;
+
+		try {
+			username = jwtService.extractUsername(token);
+			log.debug("Extracted username from token: {}", username);
+		} catch (Exception e) {
+			log.debug("Failed to extract username from token for path: {}", path, e);
+			return chain.filter(exchange);
+		}
+
+		if (username == null) {
+			log.debug("Username is null for path: {}", path);
+			return chain.filter(exchange); // Invalid token
+		}
+
+		// The whole process is a reactive chain
+		return userDetailsService.findByUsername(username)
+				.cast(org.springframework.security.core.userdetails.UserDetails.class).filter(userDetails -> {
+					try {
+						boolean isValid = jwtService.isTokenValid(token, userDetails);
+						log.debug("Token validation result for user {}: {}", username, isValid);
+						return isValid;
+					} catch (Exception e) {
+						log.debug("Token validation failed for user {}: {}", username, e.getMessage());
+						return false;
+					}
+				}).flatMap(userDetails -> {
+					log.debug("Creating authentication for user: {}", userDetails.getUsername());
+					UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+							userDetails, null, userDetails.getAuthorities());
+
+					// Set the authentication in the reactive context and continue with the chain
+					return chain.filter(exchange)
+							.contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication));
+				}).switchIfEmpty(Mono.defer(() -> {
+					log.debug("No user found or token invalid for path: {}", path);
+					return chain.filter(exchange);
+				})).onErrorResume(throwable -> {
+					log.debug("Error during JWT authentication for path: {}", path, throwable);
+					return chain.filter(exchange);
+				});
+	}
 }
