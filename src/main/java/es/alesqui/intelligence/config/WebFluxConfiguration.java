@@ -3,7 +3,6 @@ package es.alesqui.intelligence.config;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.reactive.config.CorsRegistry;
 import org.springframework.web.reactive.config.EnableWebFlux;
 import org.springframework.web.reactive.config.WebFluxConfigurer;
 
@@ -105,44 +104,4 @@ public class WebFluxConfiguration implements WebFluxConfigurer {
     @Value("${app.cors.max-age:3600}")
     private long maxAge;
 
-    /**
-     * Configures CORS mappings for the application endpoints.
-     * 
-     * This method sets up two distinct CORS configurations:
-     * 
-     * 1. API Endpoints (/api/**):
-     *    - Full CORS configuration with all specified methods and headers
-     *    - Supports all configured HTTP methods including REST operations
-     *    - Uses all configurable CORS settings from application properties
-     * 
-     * 2. Actuator Endpoints (/actuator/**):
-     *    - Restricted CORS configuration for monitoring endpoints
-     *    - Limited to GET, POST, and OPTIONS methods for security
-     *    - Uses the same origins and headers as API endpoints
-     *    - Maintains credentials support for authenticated monitoring
-     * 
-     * The separation allows for different security policies between business
-     * logic endpoints and operational monitoring endpoints.
-     * 
-     * @param registry the CORS registry to configure mappings on
-     */
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        // Configure CORS for main API endpoints
-        registry.addMapping("/api/**")
-            .allowedOrigins(allowedOrigins)
-            .allowedMethods(allowedMethods)
-            .allowedHeaders(allowedHeaders)
-            .allowCredentials(allowCredentials)
-            .maxAge(maxAge);
-        
-        // Configure CORS for actuator endpoints with restricted methods
-        // Only allowing GET, POST, and OPTIONS for security reasons
-        registry.addMapping("/actuator/**")
-            .allowedOrigins(allowedOrigins)
-            .allowedMethods("GET", "POST", "OPTIONS")
-            .allowedHeaders(allowedHeaders)
-            .allowCredentials(allowCredentials)
-            .maxAge(maxAge);
-    }
 }

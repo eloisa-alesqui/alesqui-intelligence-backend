@@ -7,7 +7,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,7 +43,6 @@ public class SwaggerController {
      * @return a Flux containing all SwaggerDocument objects
      */
     @GetMapping(produces = MediaType.APPLICATION_NDJSON_VALUE)
-    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Flux<SwaggerDocument> findAll() {
         log.info("Fetching all Swagger documents...");
         return swaggerService.findAll()
@@ -59,7 +57,6 @@ public class SwaggerController {
      * @return a Mono containing the SwaggerDocument if found, or a 404 response if not found
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Mono<ResponseEntity<SwaggerDocument>> findById(@PathVariable @NotBlank String id) {
         log.info("Fetching Swagger document with ID: {}", id);
         return swaggerService.findById(id)
@@ -75,7 +72,6 @@ public class SwaggerController {
      * @return a Mono containing the SwaggerDocument if found, or a 404 response if not found
      */
     @GetMapping("/by-name")
-    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')")
     public Mono<ResponseEntity<SwaggerDocument>> findByName(@RequestParam String name) {
         log.info("Fetching Swagger document with name: {}", name);
         return swaggerService.findByName(name)
@@ -91,7 +87,6 @@ public class SwaggerController {
      * @return a Mono containing the saved SwaggerDocument
      */
     @PostMapping
-    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<SwaggerDocument>> save(@Valid @RequestBody @NotNull SwaggerDocument document) {
         boolean isNew = document.getId() == null || document.getId().isEmpty();
         log.info("Saving Swagger document: {}", isNew ? "New document" : "Updating document with ID " + document.getId());
@@ -107,7 +102,6 @@ public class SwaggerController {
      * @return a Mono confirming the deletion
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<Void>> deleteById(@PathVariable @NotBlank String id) {
         log.info("Deleting Swagger document with ID: {}", id);
         return swaggerService.deleteById(id)
@@ -126,7 +120,6 @@ public class SwaggerController {
      * @return a Mono containing the imported SwaggerDocument
      */
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<SwaggerDocument>> importFromFile(
             @RequestPart("file") FilePart file,
             @RequestPart("name") String name,
@@ -150,7 +143,6 @@ public class SwaggerController {
      * @return a Mono containing the imported SwaggerDocument
      */
     @PostMapping(value = "/import-json", consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE})
-    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<SwaggerDocument>> importFromJson(
             @RequestBody String content,
             @RequestParam("name") String name,
@@ -170,7 +162,6 @@ public class SwaggerController {
      * @return a Mono containing the health status of the service
      */
     @GetMapping("/health")
-    @PreAuthorize("hasRole('ROLE_IT')")
     public Mono<ResponseEntity<ApiResponse<String>>> healthCheck() {
         log.info("Performing health check for Swagger service");
         return Mono.fromCallable(() -> {

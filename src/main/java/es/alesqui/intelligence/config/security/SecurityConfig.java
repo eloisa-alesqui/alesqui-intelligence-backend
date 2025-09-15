@@ -8,6 +8,7 @@ import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
@@ -50,21 +51,37 @@ public class SecurityConfig {
             // Use a stateless security context repository (no session management)
             .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
 
-            // Handle authentication errors by returning a clean 401 Unauthorized
+            // Handle authentication errors by returning a clean 401 Unauthorized or 403 Forbidden  
             .exceptionHandling(exceptionHandling ->
-                exceptionHandling.authenticationEntryPoint((exchange, ex) ->
-                    Mono.fromRunnable(() -> exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED))
-                )
-            )
+	            exceptionHandling.authenticationEntryPoint((exchange, ex) ->
+	                Mono.fromRunnable(() -> exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED))
+	            )
+	            .accessDeniedHandler((exchange, denied) ->
+	                Mono.fromRunnable(() -> exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN))
+	            )
+	        )
 
             // Configure authorization rules
             .authorizeExchange(exchanges -> exchanges
                 .pathMatchers("/api/auth/**").permitAll() // Public auth endpoints
+                .pathMatchers("/api/test/**").permitAll()
+                
+                .pathMatchers(HttpMethod.GET, "/api/swagger/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.POST, "/api/swagger/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.DELETE, "/api/swagger/**").hasRole("IT") 
+                
+                .pathMatchers(HttpMethod.GET, "/api/postman/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.POST, "/api/postman/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.DELETE, "/api/postman/**").hasRole("IT") 
+                
+                .pathMatchers(HttpMethod.POST, "/api/unification/unify").hasRole("IT") 
+                .pathMatchers(HttpMethod.PUT, "/api/unification/*/configuration").hasRole("IT") 
+                
                 .anyExchange().authenticated() // All other requests require authentication
             )
 
-            // Add our custom JWT filter BEFORE the authorization filter
-            .addFilterBefore(jwtAuthFilter, SecurityWebFiltersOrder.AUTHORIZATION)            
+            // Add our custom JWT filter BEFORE the AUTHENTICATION filter
+            .addFilterBefore(jwtAuthFilter, SecurityWebFiltersOrder.AUTHENTICATION)            
             
             .build();
     }

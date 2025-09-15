@@ -1,31 +1,20 @@
 package es.alesqui.intelligence.controller;
 
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
-import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/test")
+@Slf4j
 public class TestController {
 
-    @GetMapping("/it-only")
-    @PreAuthorize("hasRole('ROLE_IT')") 
-    public Mono<String> getItMessage(Principal principal) {
-        return Mono.just("Hello IT User: " + principal.getName() + "! You have access.");
-    }
-
-    @GetMapping("/business-only")
-    @PreAuthorize("hasRole('ROLE_BUSINESS')")
-    public Mono<String> getBusinessMessage(Principal principal) {
-        return Mono.just("Hello Business User: " + principal.getName() + "! Welcome.");
-    }
-
-    @GetMapping("/any-user")
-    @PreAuthorize("hasAnyRole('ROLE_IT', 'ROLE_BUSINESS')") 
-    public Mono<String> getAnyUserMessage() {
-        return Mono.just("This endpoint is accessible by any authenticated user.");
+	@GetMapping("/hello")
+    public Mono<String> sayHello() {
+        log.info("--- 🚨🚨🚨 TEST CONTROLLER EXECUTED ---");
+        return Mono.just("Hello World!");
     }
 }
