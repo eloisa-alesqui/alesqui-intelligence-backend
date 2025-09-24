@@ -3,6 +3,7 @@ package es.alesqui.intelligence.service.chat;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -13,6 +14,7 @@ import es.alesqui.intelligence.dto.chat.response.ChatResponse;
 import es.alesqui.intelligence.dto.chat.response.ClassificationResponse;
 import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.chat.DynamicApiQueryClassifierService.QueryType;
+import es.alesqui.intelligence.service.conversation.ChatMemoryService;
 import es.alesqui.intelligence.service.conversation.ConversationService;
 
 import java.time.Duration;
@@ -31,6 +33,8 @@ public class ChatOrchestrationService {
     private final SpringAIService springAIService;
     private final ChatConfig chatConfig;
     private final ConversationService conversationService;
+    private final ChatMemoryService chatMemoryService; // INYECTAR EL NUEVO SERVICIO
+    private final ChatMemory chatMemory;
 
     /**
      * Main entry point for processing chat requests asynchronously.
@@ -44,13 +48,22 @@ public class ChatOrchestrationService {
                 request.getConversationId());
 
         Instant startTime = Instant.now();
+        
+        Mono<Void> ensureMemoryLoaded = Mono.defer(() -> {
+            if (chatMemory.get(request.getConversationId()).isEmpty()) {
+                return chatMemoryService.loadHistoryIntoMemory(request.getConversationId());
+            } else {
+                log.debug("Memory for conversation '{}' is already populated.", request.getConversationId());
+                return Mono.empty();
+            }
+        });
 
         Mono<ChatResponse> processingMono = Mono.just(request)
                 .doOnNext(this::validateRequest)
                 .flatMap(this::classifyQuery)
                 .flatMap(classification -> routeQuery(request, classification));
 
-        return processingMono.flatMap(response -> {
+        return ensureMemoryLoaded.then(processingMono).flatMap(response -> {
 
             Mono<Void> saveSuccessOperation = SecurityUtils.getCurrentUsername()
                     .flatMap(username -> conversationService.saveInteraction(request, response, username))
@@ -130,30 +143,33 @@ public class ChatOrchestrationService {
     private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request) {
         Instant startTime = Instant.now();
         String systemPrompt = """
-            You are an AI assistant with access to API tools.
-            Use the available tools to gather information and answer user questions.
-            
-            Available tools:
-            - listApis(): Get all available APIs
-            - listEndpoints(apiName): Get endpoints for a specific API  
-            - callApi(apiName, endpoint, parametersJson): Call an API endpoint
-            - createExcelFile(jsonData, filename): Creates an Excel file from JSON data and returns a download link.
-            - createChart(chartType, jsonData, labelKey, dataKey, datasetLabel): Creates a chart configuration from JSON data.
-            
-            **Workflow for creating files:**
-            1. First, use other tools like 'listEndpoints' to gather the data the user wants.
-            2. Second, structure this data into a valid JSON array format.
-            3. Finally, call 'createExcelFile' with the JSON data to get the download link for the user.
-            
-            **Workflow for creating CHARTS:**
-            1. Use 'callApi' to get the necessary data.
-            2. Analyze the JSON result to identify the keys for labels and data.
-            3. Call 'createChart' with the data and keys to get a chart configuration object.
-            4. **IMPORTANT:** After calling createChart, your job is done. Your final answer should be a brief summary of the data, informing the user that the chart has been generated.
-            5. **Do NOT include the raw chart JSON configuration in your final response to the user.**
-            
-            Think step by step and use tools when needed to provide accurate answers.
-            """;
+    		You are a highly skilled AI assistant designed to interact with APIs. Your primary goal is to answer user questions by intelligently using a set of available tools.
+
+    		**Your Guiding Principles:**
+    		1.  **Think Step-by-Step:** Before acting, break down the user's request into a logical sequence of steps.
+    		2.  **Use Tools Intelligently:** Always use the `list_apis` tool first to discover the available operations before attempting to call an API. Do not guess endpoint names or parameters.
+    		3.  **Be Resourceful:** If a tool call fails, analyze the error, correct your approach, and try again. If it persists, inform the user clearly.
+    		4.  **Stay Focused:** Only use the provided tools. Do not invent tools.
+
+    		**Tool Reference:**
+    		- `list_apis()`: **Lists all configured and available APIs in the system. Use this to answer any questions about "what APIs are available", "which APIs are configured", or "what APIs I can use". This should always be your first step.**
+    		- `list_endpoints(apiName)`: Lists all operations for a specific API. Use this to find out what a specific API can do.
+    		- `call_api(apiName, operationId, parameters)`: Executes a specific API operation.
+    		- `create_excel_file(jsonData, filename)`: Generates an Excel file from a JSON array.
+    		- `create_chart(chartType, jsonData, labelKey, dataKey, datasetLabel)`: Generates a chart configuration object.
+
+    		**Workflow for Creating Files (Excel):**
+    		1.  Obtain the necessary data by calling an API using `call_api`.
+    		2.  Ensure the result is a valid JSON array.
+    		3.  Pass the JSON data and a descriptive filename to `create_excel_file`.
+
+    		**Workflow for Creating Charts:**
+    		1.  Obtain the necessary data using `call_api`.
+    		2.  Analyze the JSON result to identify the correct keys for labels (`labelKey`) and data values (`dataKey`).
+    		3.  Call `create_chart` with all required parameters.
+    		4.  **CRITICAL:** After the `create_chart` tool is called successfully, your task is complete. Your final answer must be a brief summary of the data and a confirmation that the chart is ready.
+    		5.  **DO NOT** include the raw JSON chart configuration in your final response.
+    		""";
             
         return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning())
             .timeout(chatConfig.getToolsTimeout())

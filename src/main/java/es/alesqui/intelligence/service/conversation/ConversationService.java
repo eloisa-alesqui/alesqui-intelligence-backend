@@ -159,5 +159,16 @@ public class ConversationService {
                 .build()
             );
     }
+    
+    /**
+     * Finds all conversation records for a given conversation ID, sorted by timestamp.
+     * This is intended for internal use, like populating chat memory.
+     *
+     * @param conversationId The conversation ID.
+     * @return A Flux of ConversationRecord.
+     */
+    public Flux<ConversationRecord> findAllByConversationIdForMemory(String conversationId) {
+        return repository.findByConversationIdOrderByTimestampAsc(conversationId);
+    }
 
 }

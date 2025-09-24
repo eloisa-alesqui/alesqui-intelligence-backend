@@ -51,7 +51,7 @@ public class ApiActionTools {
     
     private final Path tempFileDir = Paths.get(System.getProperty("java.io.tmpdir"), "alesqui-intelligence-files");
 
-    @Tool(description = "Lists all available APIs with their descriptions, tags, and a summary of their capabilities. This is the first step to take to decide which API is the most appropriate for a user's query.")
+    @Tool(name = "list_apis", description = "Lists all available APIs with their descriptions, tags, and a summary of their capabilities. This is the first step to take to decide which API is the most appropriate for a user's query.")
     public String listApis() {
         log.info("Executing tool: listApis");
         try {
@@ -77,7 +77,7 @@ public class ApiActionTools {
         }
     }
 
-    @Tool(description = "Gets the endpoints (operations) for a specific API, including their required parameters. You need this to know which operations can be performed before calling 'callApi'.")
+    @Tool(name = "list_endpoints", description = "Gets the endpoints (operations) for a specific API, including their required parameters. You need this to know which operations can be performed before calling 'callApi'.")
     public String listEndpoints(
         @ToolParam(description = "The exact name of the API to inspect. Must be one of the names returned by the 'listApis' tool.") String apiName) {
         log.info("Executing tool: listEndpoints for API '{}'", apiName);
@@ -117,7 +117,7 @@ public class ApiActionTools {
             .collect(Collectors.joining("\n"));
     }
     
-    @Tool(description = "Calls a specific API endpoint with the provided parameters. Use this after getting the available endpoints with 'listEndpoints'.")
+    @Tool(name = "call_api", description = "Calls a specific API endpoint with the provided parameters. Use this after getting the available endpoints with 'listEndpoints'.")
     public ApiCallResponse callApi(
         @ToolParam(description = "The exact name of the API to call. Must be one of the names returned by 'listApis'.") String apiName,
         @ToolParam(description = "The operation ID of the endpoint to call. Must be one of the operation IDs returned by 'listEndpoints'.") String operationId,
@@ -261,7 +261,7 @@ public class ApiActionTools {
         return request;
     }
     
-    @Tool(description = "Creates an Excel file from JSON data and returns a download link. Use this tool when the user asks for a file (Excel, CSV, etc.) to be created.")
+    @Tool(name = "create_excel_file", description = "Creates an Excel file from JSON data and returns a download link. Use this tool when the user asks for a file (Excel, CSV, etc.) to be created.")
     public String createExcelFile(
         @ToolParam(description = "A JSON string representing an array of objects. Each object is a row, and each key in the object is a column header.") String jsonData,
         @ToolParam(description = "A descriptive name for the file, without the extension. Example: 'api_endpoints_report'") String filename
@@ -320,7 +320,7 @@ public class ApiActionTools {
         }
     }
 
-    @Tool(description = "Creates a chart configuration object from JSON data. Use this when the user asks for a visual representation of data (graph, chart, plot, etc.).")
+    @Tool(name = "create_chart", description = "Creates a chart configuration object from JSON data. Use this when the user asks for a visual representation of data (graph, chart, plot, etc.).")
     public ChartData createChart(
         @ToolParam(description = "The type of chart to create. Supported values: 'bar', 'pie', 'line'.") String chartType,
         @ToolParam(description = "A JSON string of the data to plot. It should be an array of objects.") String jsonData,
