@@ -3,7 +3,6 @@ package es.alesqui.intelligence.service.chat;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.springframework.ai.chat.model.Generation;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -12,7 +11,9 @@ import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
 import es.alesqui.intelligence.dto.chat.response.ClassificationResponse;
+import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.chat.DynamicApiQueryClassifierService.QueryType;
+import es.alesqui.intelligence.service.conversation.ConversationService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +30,7 @@ public class ChatOrchestrationService {
     private final DynamicApiQueryClassifierService classifierService;
     private final SpringAIService springAIService;
     private final ChatConfig chatConfig;
+    private final ConversationService conversationService;
 
     /**
      * Main entry point for processing chat requests asynchronously.
@@ -38,19 +40,35 @@ public class ChatOrchestrationService {
      * @return A Mono<ChatResponse> representing the asynchronous operation.
      */
     public Mono<ChatResponse> processQuery(ChatRequest request) {
-        log.info("🚀 Processing chat request: '{}' for conversation: {}",
-            request.getQuery(), request.getConversationId());
+        log.info("🚀 Processing chat request: '{}' for conversation: {}", request.getQuery(),
+                request.getConversationId());
 
         Instant startTime = Instant.now();
 
-        // The entire process is now a reactive chain, starting from the request.
-        return Mono.just(request)
-            .doOnNext(this::validateRequest)
-            .flatMap(this::classifyQuery) // Chain to the classification step
-            .flatMap(classification -> routeQuery(request, classification)) // Chain to the routing step
-            .doOnSuccess(response -> logSuccess(response, Duration.between(startTime, Instant.now()).toMillis()))
-            .doOnError(error -> logError(request, error))
-            .onErrorResume(error -> Mono.just(handleGlobalError(error, request.getConversationId()))); // Graceful error handling
+        Mono<ChatResponse> processingMono = Mono.just(request)
+                .doOnNext(this::validateRequest)
+                .flatMap(this::classifyQuery)
+                .flatMap(classification -> routeQuery(request, classification));
+
+        return processingMono.flatMap(response -> {
+
+            Mono<Void> saveSuccessOperation = SecurityUtils.getCurrentUsername()
+                    .flatMap(username -> conversationService.saveInteraction(request, response, username))
+                    .then(); 
+
+            return saveSuccessOperation
+                    .thenReturn(response)
+                    .doOnSuccess(r -> logSuccess(r, Duration.between(startTime, Instant.now()).toMillis()));
+
+        }).onErrorResume(error -> {
+            logError(request, error);
+
+            Mono<Void> saveFailureOperation = SecurityUtils.getCurrentUsername()
+                    .flatMap(username -> conversationService.saveFailedInteraction(request, error, username));
+
+            return saveFailureOperation
+                    .then(Mono.just(handleGlobalError(error, request.getConversationId())));
+        });
     }
 
     /**
@@ -102,7 +120,12 @@ public class ChatOrchestrationService {
     }
     
     /**
-     * Executes the tool-based chat flow.
+     * Executes the tool-based (ReAct) chat flow.
+     * This involves calling an AI model that can use a predefined set of tools
+     * (like API calls or chart generation) to answer the user's query.
+     *
+     * @param request The original chat request.
+     * @return A Mono emitting the final ChatResponse after tool execution.
      */
     private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request) {
         Instant startTime = Instant.now();
@@ -135,7 +158,7 @@ public class ChatOrchestrationService {
         return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning())
             .timeout(chatConfig.getToolsTimeout())
             .map(chatWithReasoningResponse -> {
-            	org.springframework.ai.chat.model.ChatResponse aiResponse = chatWithReasoningResponse.getChatResponse();
+
             	String responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
                 String formattedReasoning = null;
 
@@ -160,7 +183,11 @@ public class ChatOrchestrationService {
     }
     
     /**
-     * Generates a direct response without API calls, fully reactively.
+     * Generates a direct conversational response without using any external tools.
+     * This is used when the query classifier determines that no API calls are necessary.
+     *
+     * @param request The original chat request.
+     * @return A Mono emitting the direct ChatResponse from the AI model.
      */
     private Mono<ChatResponse> generateDirectResponse(ChatRequest request) {
         Instant startTime = Instant.now();
@@ -182,6 +209,14 @@ public class ChatOrchestrationService {
         });
     }
 
+    /**
+     * Creates a standardized error response when an unrecoverable exception occurs.
+     * This method is the final step in the .onErrorResume() chain.
+     *
+     * @param error The throwable that was caught.
+     * @param conversationId The ID of the conversation that failed.
+     * @return A user-friendly ChatResponse object detailing the error.
+     */
     private ChatResponse handleGlobalError(Throwable error, String conversationId) {
         log.error("❌ Global error in chat processing: {}", error.getMessage(), error);
         
@@ -189,7 +224,14 @@ public class ChatOrchestrationService {
             "An unexpected error occurred during processing: " + error.getMessage(), conversationId)
             .addMetadata("errorType", error.getClass().getSimpleName());
     }
-
+    
+    /**
+     * Logs the details of a successfully processed chat response.
+     * Also triggers checks for performance or token usage warnings.
+     *
+     * @param response The successful ChatResponse.
+     * @param processingTime The total time taken for processing in milliseconds.
+     */
     private void logSuccess(ChatResponse response, long processingTime) {
         log.debug("🔍 Processing Information:");
         log.debug("   Conversation ID: {}", response.getConversationId());
@@ -198,6 +240,12 @@ public class ChatOrchestrationService {
         logWarningsIfAny(response);
     }
 
+    /**
+     * Checks a successful response for potential issues, like slow processing time
+     * or high token usage, and logs a warning if they exceed configured thresholds.
+     *
+     * @param response The successful ChatResponse to inspect.
+     */
     private void logWarningsIfAny(ChatResponse response) {
         if (response.getProcessingTimeMs() != null && response.getProcessingTimeMs() > chatConfig.getTimeoutWarning()) {
             log.warn("⚠️ Slow processing detected: {} ms", response.getProcessingTimeMs());
@@ -209,6 +257,13 @@ public class ChatOrchestrationService {
         }
     }
 
+    /**
+     * Logs the details of a failed request.
+     * This is typically called from an .onErrorResume() or .doOnError() block.
+     *
+     * @param request The original ChatRequest that failed.
+     * @param error The throwable that was caught.
+     */
     private void logError(ChatRequest request, Throwable error) {
         log.error("❌ Error processing query '{}' for conversation {}: {}", request.getQuery(),
                 request.getConversationId(), error.getMessage());

@@ -24,11 +24,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Collection {
-	
-	@Field("_class")
-	@JsonProperty("_class")
-	@Builder.Default
-	private String _class = "es.alesqui.intelligence.model.api_spec.postman.Collection";
 
 	/**
 	 * Collection information (name, description, version, etc.)

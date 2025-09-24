@@ -25,11 +25,6 @@ import java.util.Arrays;
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Url {
-	
-	@Field("_class")
-	@JsonProperty("_class")
-	@Builder.Default
-	private String _class = "es.alesqui.intelligence.model.api_spec.postman.Url";
 
 	/**
 	 * The string representation of the request URL, including the protocol, host,
