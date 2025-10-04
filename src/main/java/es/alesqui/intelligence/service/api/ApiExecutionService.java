@@ -76,7 +76,8 @@ public class ApiExecutionService {
         }
 
         // 2. Build the WebClient for this specific request.
-        WebClient client = webClientBuilder.baseUrl(apiConfigurationService.getBaseUrl(request.getApiName())).build();
+        String baseUrl = apiConfigurationService.getBaseUrl(request.getApiName());
+        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
 
         WebClient.RequestBodySpec requestSpec = client
                 .method(HttpMethod.valueOf(request.getHttpMethod().toUpperCase()))
@@ -100,7 +101,7 @@ public class ApiExecutionService {
         Map<String, String> headers = apiConfigurationService.getHeaders(request.getApiName());
 
         // If auth type is OAuth2, fetch the dynamic token and add the final header
-        if ("oauth2_client_credentials".equals(config.getAuth().getAuthType())) {
+        if ("oauth2".equals(config.getAuth().getAuthType())) {
             String token = oauth2TokenService.getAccessToken(request.getApiName());
             if (token != null) {
                 headers.put("Authorization", "Bearer " + token);

@@ -1,7 +1,6 @@
 package es.alesqui.intelligence.service.api;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-
 import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +18,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages the lifecycle of OAuth 2.0 access tokens for the Client Credentials flow.
- * This service handles fetching, caching, and renewing tokens automatically.
+ * Manages the lifecycle of OAuth 2.0 access tokens for various grant types.
+ * This service handles fetching, caching, and renewing tokens automatically based on API configuration.
  */
 @Slf4j
 @Service
@@ -30,20 +29,17 @@ public class OAuth2TokenService {
     private final ApiConfigurationService apiConfigurationService;
     private final WebClient.Builder webClientBuilder;
 
-    // In-memory, thread-safe cache for storing active tokens.
-    // Key: apiName, Value: The cached token object.
     private final Map<String, CachedToken> tokenCache = new ConcurrentHashMap<>();
 
     /**
      * Retrieves a valid access token for a given API.
-     * It first checks the local cache for a non-expired token. If not found,
+     * It first checks the local cache for a non-expired token. If not found or expired,
      * it requests a new one from the authorization server.
      *
      * @param apiName The unique name of the API requiring the token.
      * @return A valid access token, or null if it could not be obtained.
      */
     public String getAccessToken(String apiName) {
-        // Use compute to ensure atomic operations on the cache, making it thread-safe.
         CachedToken token = tokenCache.compute(apiName, (key, existingToken) -> {
             if (existingToken != null && !existingToken.isExpired()) {
                 log.debug("Returning cached token for API '{}'", apiName);
@@ -57,25 +53,20 @@ public class OAuth2TokenService {
     }
 
     /**
-     * Fetches a new token from the authorization server and caches it.
+     * Fetches a new token from the authorization server based on the API's configuration
+     * and caches it upon success.
      *
      * @param apiName The API to fetch the token for.
      * @return A new CachedToken object, or null on failure.
      */
     private CachedToken fetchAndCacheNewToken(String apiName) {
-        ApiConfiguration.OAuth2ClientCredentialsConfig oauthConfig = getOAuthConfig(apiName);
-        if (oauthConfig == null || oauthConfig.getTokenUrl() == null) {
+        ApiConfiguration.OAuth2Config oauthConfig = getOAuthConfig(apiName);
+        if (oauthConfig == null || oauthConfig.getTokenUrl() == null || oauthConfig.getGrantType() == null) {
             log.error("OAuth 2.0 configuration is missing or invalid for API '{}'", apiName);
             return null;
         }
 
-        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        formData.add("grant_type", "client_credentials");
-        formData.add("client_id", oauthConfig.getClientId());
-        formData.add("client_secret", oauthConfig.getClientSecret());
-        if (oauthConfig.getScopes() != null && !oauthConfig.getScopes().isEmpty()) {
-            formData.add("scope", oauthConfig.getScopes());
-        }
+        MultiValueMap<String, String> formData = buildFormData(oauthConfig);
 
         try {
             WebClient webClient = webClientBuilder.baseUrl(oauthConfig.getTokenUrl()).build();
@@ -92,10 +83,10 @@ public class OAuth2TokenService {
                             })
                     )
                     .bodyToMono(OAuth2TokenResponse.class)
-                    .block(Duration.ofSeconds(10)); // Block to wait for the response synchronously
+                    .block(Duration.ofSeconds(15)); 
 
             if (tokenResponse != null && tokenResponse.getAccessToken() != null) {
-                log.info("Successfully fetched new token for API '{}'", apiName);
+                log.info("Successfully fetched new token for API '{}' using grant_type '{}'", apiName, oauthConfig.getGrantType());
                 return new CachedToken(tokenResponse.getAccessToken(), tokenResponse.getExpiresIn());
             }
 
@@ -106,22 +97,55 @@ public class OAuth2TokenService {
         return null;
     }
 
-    private ApiConfiguration.OAuth2ClientCredentialsConfig getOAuthConfig(String apiName) {
-        return apiConfigurationService.getConfiguration(apiName)
-                .getAuth()
-                .getOauth2ClientCredentials();
+    /**
+     * Constructs the form data for the token request based on the OAuth 2.0 configuration.
+     *
+     * @param oauthConfig The OAuth 2.0 configuration object.
+     * @return A MultiValueMap containing the appropriate form fields for the grant type.
+     */
+    private MultiValueMap<String, String> buildFormData(ApiConfiguration.OAuth2Config oauthConfig) {
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+        String grantType = oauthConfig.getGrantType();
+        
+        formData.add("grant_type", grantType);
+        formData.add("client_id", oauthConfig.getClientId());
+        formData.add("client_secret", oauthConfig.getClientSecret());
+
+        if (oauthConfig.getScopes() != null && !oauthConfig.getScopes().isEmpty()) {
+            formData.add("scope", oauthConfig.getScopes());
+        }
+        
+        // Add fields specific to the "password" grant type
+        if ("password".equalsIgnoreCase(grantType)) {
+            formData.add("username", oauthConfig.getUsername());
+            formData.add("password", oauthConfig.getPassword());
+        }
+
+        return formData;
     }
 
     /**
-     * A simple DTO to map the JSON response from the OAuth 2.0 token endpoint.
+     * Retrieves the unified OAuth2Config for a given API.
+     *
+     * @param apiName The name of the API.
+     * @return The OAuth2Config object.
      */
+    private ApiConfiguration.OAuth2Config getOAuthConfig(String apiName) {
+        // This assumes ApiConfigurationService can provide the full config by name
+        return apiConfigurationService.getConfiguration(apiName)
+                .getAuth()
+                .getOauth2(); 
+    }
+
+    // --- INNER CLASSES (OAuth2TokenResponse and CachedToken) remain the same ---
+
     @Data
     private static class OAuth2TokenResponse {
         @JsonProperty("access_token")
         private String accessToken;
 
         @JsonProperty("expires_in")
-        private long expiresIn; // The lifetime in seconds of the access token
+        private long expiresIn;
 
         @JsonProperty("token_type")
         private String tokenType;
@@ -130,17 +154,13 @@ public class OAuth2TokenService {
         private String scope;
     }
 
-    /**
-     * A wrapper class to hold the access token and its expiration time.
-     */
     private static class CachedToken {
         private final String accessToken;
         private final Instant expiryTime;
 
         public CachedToken(String accessToken, long expiresInSeconds) {
             this.accessToken = accessToken;
-            // Subtract a 60-second buffer to be safe and renew the token preemptively
-            this.expiryTime = Instant.now().plusSeconds(expiresInSeconds - 60);
+            this.expiryTime = Instant.now().plusSeconds(Math.max(60, expiresInSeconds) - 60); // Ensure at least a 60s lifetime
         }
 
         public String getAccessToken() {

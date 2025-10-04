@@ -152,23 +152,38 @@ public class ApiConfiguration {
          * A nested object containing configuration for the OAuth 2.0
          * Client Credentials grant type.
          */
-        @Field("oauth2ClientCredentials")
-        @JsonProperty("oauth2ClientCredentials")
-        private OAuth2ClientCredentialsConfig oauth2ClientCredentials;
+        @Field("oauth2")
+        @JsonProperty("oauth2")
+        private OAuth2Config oauth2;
     }
 
     // --- Nested Class for OAuth 2.0 Client Credentials ---
 
     /**
-     * Stores the necessary credentials for the OAuth 2.0 Client Credentials flow.
-     * This allows the application to automatically request and refresh access tokens.
+     * Stores all necessary credentials for OAuth 2.0 flows.
+     * The specific fields used depend on the selected grantType.
      */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class OAuth2ClientCredentialsConfig {
+    public static class OAuth2Config {
+
+        /**
+         * The grant type to use. e.g., "client_credentials", "password".
+         */
+        @Field("grantType")
+        @JsonProperty("grantType")
+        @Builder.Default
+        private String grantType = "client_credentials";
+        
+        /**
+         * The URL of the authorization server's token endpoint.
+         */
+        @Field("tokenUrl")
+        @JsonProperty("tokenUrl")
+        private String tokenUrl;
 
         /**
          * The Client ID provided by the OAuth 2.0 authorization server.
@@ -183,21 +198,26 @@ public class ApiConfiguration {
         @Field("clientSecret")
         @JsonProperty("clientSecret")
         private String clientSecret;
-
+        
         /**
-         * The URL of the authorization server's token endpoint.
-         * The application will POST to this URL to obtain an access token.
-         */
-        @Field("tokenUrl")
-        @JsonProperty("tokenUrl")
-        private String tokenUrl;
-
-        /**
-         * A space-separated list of scopes to request from the authorization server.
-         * Example: "read:data write:data".
+         * A space-separated list of scopes to request.
          */
         @Field("scopes")
         @JsonProperty("scopes")
         private String scopes;
+        
+        /**
+         * The username for the resource owner (used in 'password' grant type).
+         */
+        @Field("username")
+        @JsonProperty("username")
+        private String username;
+
+        /**
+         * The password for the resource owner (used in 'password' grant type).
+         */
+        @Field("password")
+        @JsonProperty("password")
+        private String password;
     }
 }
