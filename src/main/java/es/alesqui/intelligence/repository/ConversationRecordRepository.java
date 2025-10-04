@@ -5,6 +5,7 @@ import es.alesqui.intelligence.model.conversation.ConversationStatus;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * Spring Data Reactive MongoDB repository for the {@link ConversationRecord} document.
@@ -45,4 +46,12 @@ public interface ConversationRecordRepository extends ReactiveMongoRepository<Co
      * @return A {@link Flux} that emits all matching {@link ConversationRecord} objects.
      */
     Flux<ConversationRecord> findByStatus(ConversationStatus status);
+    
+    /**
+     * Deletes all records associated with a given conversation ID.
+     *
+     * @param conversationId The unique identifier for the conversation.
+     * @return A {@link Mono<Void>} that completes once the deletion operation is finished.
+     */
+    Mono<Void> deleteByConversationId(String conversationId);
 }

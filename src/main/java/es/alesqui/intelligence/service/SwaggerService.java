@@ -122,6 +122,19 @@ public class SwaggerService {
                 .doOnSuccess(unused -> log.info("Swagger document deleted with ID: {}", id))
                 .doOnError(error -> log.error("Error deleting Swagger document with ID: {}", id, error));
     }
+    
+    /**
+     * Deletes a Swagger document by its unique name.
+     *
+     * @param name the unique name of the Swagger document
+     * @return a Mono that completes when the deletion is finished
+     */
+    public Mono<Void> deleteByName(String name) {
+        log.info("Deleting Swagger document with name: {}", name);
+        return repository.deleteByName(name)
+                .doOnSuccess(unused -> log.info("Swagger document deleted with name: {}", name))
+                .doOnError(error -> log.error("Error deleting Swagger document with name: {}", name, error));
+    }
 
     /**
      * Imports a Swagger/OpenAPI specification from a file and wraps it in a SwaggerDocument.

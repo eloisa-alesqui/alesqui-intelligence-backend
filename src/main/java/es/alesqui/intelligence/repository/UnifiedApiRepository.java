@@ -1,6 +1,5 @@
 package es.alesqui.intelligence.repository;
 
-import org.bson.types.ObjectId;
 import org.springframework.data.mongodb.repository.Query;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.stereotype.Repository;
@@ -16,7 +15,7 @@ import java.time.LocalDateTime;
  * Provides MongoDB data access operations for unified API data management.
  */
 @Repository
-public interface UnifiedApiRepository extends ReactiveMongoRepository<UnifiedApiDocument, ObjectId> {
+public interface UnifiedApiRepository extends ReactiveMongoRepository<UnifiedApiDocument, String> {
 
     /**
      * Finds API documents by their name using case-insensitive exact match.

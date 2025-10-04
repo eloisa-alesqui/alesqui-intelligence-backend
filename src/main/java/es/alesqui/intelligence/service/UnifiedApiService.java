@@ -3,7 +3,6 @@ package es.alesqui.intelligence.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.bson.types.ObjectId;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -11,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import es.alesqui.intelligence.exception.DocumentNotFoundException;
 import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
@@ -34,6 +34,8 @@ import java.util.List;
 public class UnifiedApiService {
 
 	private final UnifiedApiRepository unifiedApiRepository;
+	private final SwaggerService swaggerService;
+    private final PostmanService postmanService;
 
 	/**
 	 * Retrieves all API documents from the repository.
@@ -82,8 +84,7 @@ public class UnifiedApiService {
 	@Cacheable(value = "apis", key = "#apiId")
 	public Mono<UnifiedApiDocument> findById(String apiId) {
 		log.debug("Fetching API document with id: {}", apiId);
-		ObjectId objectId = new ObjectId(apiId);
-		return unifiedApiRepository.findById(objectId)
+		return unifiedApiRepository.findById(apiId)
 				.doOnNext(doc -> log.info("Found API document: {}", doc.getName()))
 				.switchIfEmpty(Mono.error(new IllegalArgumentException("API not found with ID: " + apiId)))
 				.doOnError(error -> log.error("Error fetching API document by ID: {}", apiId, error));
@@ -137,9 +138,8 @@ public class UnifiedApiService {
 	@Transactional
 	public Mono<UnifiedApiDocument> updateApi(String apiId, UnifiedApiDocument apiDocument) {
 		log.info("Updating API document with id: {}", apiId);
-		ObjectId objectId = new ObjectId(apiId);
 
-		return unifiedApiRepository.findById(objectId)
+		return unifiedApiRepository.findById(apiId)
 				.switchIfEmpty(Mono.error(new IllegalArgumentException("API not found with id: " + apiId)))
 				.flatMap(existingApi -> {
 					return Mono.fromCallable(() -> {
@@ -147,7 +147,7 @@ public class UnifiedApiService {
 						validateApiDocument(apiDocument);
 
 						// Preserve creation timestamp and update modification timestamp
-						apiDocument.setId(objectId);
+						apiDocument.setId(apiId);
 						apiDocument.setCreatedAt(existingApi.getCreatedAt());
 						apiDocument.setUpdatedAt(Instant.now());
 
@@ -174,25 +174,23 @@ public class UnifiedApiService {
                 });
     }
 
-	/**
-	 * Deletes an API document from the repository.
-	 *
-	 * @param apiId The identifier of the API to delete
-	 * @return Mono that completes when deletion is successful
-	 */
-	@Transactional
-	public Mono<Void> deleteApi(String apiId) {
-		log.info("Deleting API document with id: {}", apiId);
-		ObjectId objectId = new ObjectId(apiId);
+    /**
+     * Deletes a UnifiedApiDocument and its corresponding Swagger and Postman documents.
+     * The deletion is based on the unique name shared across the documents.
+     *
+     * @param id The ID of the UnifiedApiDocument to delete.
+     * @return A Mono<Void> that completes when all documents are deleted.
+     */
+    public Mono<Void> deleteApi(String id) {
+        log.info("Attempting to delete API with ID: {}", id);
 
-		return unifiedApiRepository.existsById(objectId).flatMap(exists -> {
-			if (!exists) {
-				return Mono.error(new IllegalArgumentException("API not found with id: " + apiId));
-			}
-			return unifiedApiRepository.deleteById(objectId);
-		}).doOnSuccess(unused -> log.info("API document deleted with ID: {}", apiId))
-				.doOnError(error -> log.error("Error deleting API document with ID: {}", apiId, error));
-	}
+        return unifiedApiRepository.findById(id)
+                .flatMap(api -> {
+                    return swaggerService.deleteByName(api.getName())
+                        .then(postmanService.deleteByName(api.getName()))
+                        .then(unifiedApiRepository.delete(api));
+                });
+    }
 
 	/**
 	 * Searches for API documents by name or description.
@@ -289,8 +287,7 @@ public class UnifiedApiService {
 	 * @return Mono of boolean indicating if the API exists
 	 */
 	public Mono<Boolean> existsById(String apiId) {
-		ObjectId objectId = new ObjectId(apiId);
-		return unifiedApiRepository.existsById(objectId)
+		return unifiedApiRepository.existsById(apiId)
 				.doOnNext(exists -> log.debug("API with ID '{}' exists: {}", apiId, exists))
 				.doOnError(error -> log.error("Error checking if API exists by ID: {}", apiId, error));
 	}

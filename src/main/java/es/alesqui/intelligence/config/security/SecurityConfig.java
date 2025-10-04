@@ -65,6 +65,7 @@ public class SecurityConfig {
             .authorizeExchange(exchanges -> exchanges
                 .pathMatchers("/api/auth/**").permitAll() // Public auth endpoints
                 .pathMatchers("/api/test/**").permitAll()
+                .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 
                 .pathMatchers(HttpMethod.GET, "/api/swagger/**").hasRole("IT") 
                 .pathMatchers(HttpMethod.POST, "/api/swagger/**").hasRole("IT") 
@@ -76,6 +77,7 @@ public class SecurityConfig {
                 
                 .pathMatchers(HttpMethod.POST, "/api/unification/unify").hasRole("IT") 
                 .pathMatchers(HttpMethod.PUT, "/api/unification/*/configuration").hasRole("IT") 
+                .pathMatchers(HttpMethod.DELETE, "/api/unification/**").hasRole("IT") 
                 
                 .anyExchange().authenticated() // All other requests require authentication
             )

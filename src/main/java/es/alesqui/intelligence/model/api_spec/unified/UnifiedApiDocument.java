@@ -5,7 +5,6 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
-import org.bson.types.ObjectId;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -34,7 +33,7 @@ public class UnifiedApiDocument {
      * The unique identifier of the unified API document.
      */
     @Id
-    private ObjectId id;
+    private String id;
 
     /**
      * The name of the API specification.

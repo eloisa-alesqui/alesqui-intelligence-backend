@@ -29,4 +29,12 @@ public interface SwaggerRepository extends ReactiveMongoRepository<SwaggerDocume
      * @return a Mono emitting the matching SwaggerDocument, or empty if not found
      */
     Mono<SwaggerDocument> findByName(String name);
+    
+    /**
+     * Deletes a SwaggerDocument by its unique name.
+     *
+     * @param name the name of the SwaggerDocument to delete
+     * @return a Mono that completes when the document is deleted
+     */
+    Mono<Void> deleteByName(String name);
 }

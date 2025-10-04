@@ -29,4 +29,12 @@ public interface PostmanRepository extends ReactiveMongoRepository<PostmanDocume
      * @return a Mono emitting the matching PostmanDocument, or empty if not found
      */
     Mono<PostmanDocument> findByName(String name);
+    
+    /**
+     * Deletes a PostmanDocument by its unique name.
+     *
+     * @param name the name of the PostmanDocument to delete
+     * @return a Mono that completes when the document is deleted
+     */
+    Mono<Void> deleteByName(String name);
 }

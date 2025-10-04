@@ -109,6 +109,19 @@ public class PostmanService {
                 .doOnSuccess(unused -> log.info("Collection deleted with ID: {}", id))
                 .doOnError(error -> log.error("Error deleting collection with ID: {}", id, error));
     }
+    
+    /**
+     * Deletes a Postman collection document by its unique name.
+     *
+     * @param name the unique name of the collection to delete
+     * @return a Mono that completes when the deletion is successful
+     */
+    public Mono<Void> deleteByName(String name) {
+        log.info("Deleting collection with name: {}", name);
+        return repository.deleteByName(name)
+                .doOnSuccess(unused -> log.info("Collection deleted with name: {}", name))
+                .doOnError(error -> log.error("Error deleting collection with name: {}", name, error));
+    }
 
     /**
      * Imports a Postman collection from a JSON file.

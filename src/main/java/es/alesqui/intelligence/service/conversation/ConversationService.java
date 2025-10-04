@@ -170,5 +170,30 @@ public class ConversationService {
     public Flux<ConversationRecord> findAllByConversationIdForMemory(String conversationId) {
         return repository.findByConversationIdOrderByTimestampAsc(conversationId);
     }
+    
+ // Dentro de la clase ConversationService
+
+    /**
+     * Deletes all records associated with a conversation, but only if the
+     * specified user is the owner.
+     *
+     * @param conversationId The ID of the conversation to be deleted.
+     * @param username The user requesting the deletion.
+     * @return A {@link Mono<Void>} that completes when the deletion is done.
+     * If the conversation doesn't belong to the user, it will emit an error
+     * or complete empty to prevent unauthorized deletion.
+     */
+    public Mono<Void> deleteConversationForUser(String conversationId, String username) {
+        return repository.findByConversationIdOrderByTimestampAsc(conversationId)
+            .collectList() 
+            .flatMap(records -> {
+                if (records.isEmpty() || !records.get(0).getUsername().equals(username)) {
+                    log.warn("🚨 User '{}' attempted to delete conversation '{}' but has no permission or it does not exist.", username, conversationId);
+                    return Mono.empty();
+                }
+                log.info("🗑️ Deleting conversation '{}' for user '{}'.", conversationId, username);
+                return repository.deleteByConversationId(conversationId);
+            });
+    }
 
 }

@@ -122,6 +122,25 @@ public class ApiUnificationController {
     }
     
     /**
+     * Deletes an API specification and its related documents.
+     *
+     * This operation performs a cascading delete, removing the main UnifiedApiDocument
+     * as well as any associated Swagger and Postman documents that share the same unique name.
+     * The operation is atomic; if any part of the deletion fails, the transaction should ideally be rolled back.
+     *
+     * @param id The unique identifier (String) of the UnifiedApiDocument to be deleted.
+     * @return An empty Mono (Mono<Void>) that completes when the deletion operation is finished,
+     * or emits an error if the API with the given ID is not found or if the deletion fails.
+     */
+	@DeleteMapping("/{id}")
+	public Mono<ResponseEntity<Void>> deleteApi(@PathVariable String id) {
+		log.info("DELETE request received for unification id: {}", id);
+		return unifiedApiService.deleteApi(id)
+				.then(Mono.just(new ResponseEntity<Void>(HttpStatus.NO_CONTENT))) 
+				.defaultIfEmpty(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+	}
+    
+    /**
      * Helper method to unify documents and save the result.
      * Handles a potentially null PostmanDocument.
      *
