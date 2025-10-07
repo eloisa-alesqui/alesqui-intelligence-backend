@@ -2,7 +2,6 @@ package es.alesqui.intelligence.service.api;
 
 import es.alesqui.intelligence.dto.chat.request.ApiCallRequest;
 import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
-import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
@@ -65,77 +64,92 @@ public class ApiExecutionService {
      * This method is responsible for assembling all parts of the request, including the final auth headers.
      */
     private Mono<ApiCallResponse> performApiCall(ApiCallRequest request, long startTime) {
-        // 1. Fetch the entire configuration object once.
-        ApiConfiguration config = apiConfigurationService.getConfiguration(request.getApiName());
-        boolean loggingEnabled = config.isEnableLogging();
-
-        if (loggingEnabled) {
-            log.info("Executing {} {} for API: {} (timeout: {}s, retries: {})",
-                    request.getHttpMethod(), request.getEndpoint(),
-                    request.getApiName(), config.getTimeoutSeconds(), config.getMaxRetries());
-        }
-
-        // 2. Build the WebClient for this specific request.
-        String baseUrl = apiConfigurationService.getBaseUrl(request.getApiName());
-        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
-
-        WebClient.RequestBodySpec requestSpec = client
-                .method(HttpMethod.valueOf(request.getHttpMethod().toUpperCase()))
-                .uri(uriBuilder -> {
-                	uriBuilder.path(request.getPath());
-                    // Add query parameters from the request itself
-                    if (request.getParameters() != null && isQueryParamMethod(request.getHttpMethod())) {
-                        request.getParameters().forEach((key, value) -> {
-                            if (value != null) uriBuilder.queryParam(key, value.toString());
-                        });
-                    }
-                    // Add API Key to query if configured to do so
-                    if ("api_key".equals(config.getAuth().getAuthType()) && "query".equalsIgnoreCase(config.getAuth().getAddApiKeyTo())) {
-                       uriBuilder.queryParam(config.getAuth().getApiKeyName(), config.getAuth().getApiKey());
-                    }
-                    return uriBuilder.build();
-                });
-
-        // 3. Add all headers, orchestrating static and dynamic ones.
-        // Get static headers (Basic, static Bearer, API Key in header)
-        Map<String, String> headers = apiConfigurationService.getHeaders(request.getApiName());
-
-        // If auth type is OAuth2, fetch the dynamic token and add the final header
-        if ("oauth2".equals(config.getAuth().getAuthType())) {
-            String token = oauth2TokenService.getAccessToken(request.getApiName());
-            if (token != null) {
-                headers.put("Authorization", "Bearer " + token);
-            } else {
-                log.warn("Could not retrieve OAuth 2.0 token for API '{}'. The call may fail.", request.getApiName());
-            }
-        }
-        
-        // Apply the final map of headers to the request
-        headers.forEach(requestSpec::header);
-        
-        // Apply any headers passed in the original request
-        if (request.getHeaders() != null) {
-            request.getHeaders().forEach(requestSpec::header);
-        }
-
-        // 4. Set the body if applicable
-        Mono<String> responseMono;
-        if (request.getParameters() != null && !isQueryParamMethod(request.getHttpMethod())) {
-            responseMono = requestSpec.bodyValue(request.getParameters()).retrieve().bodyToMono(String.class);
-        } else {
-            responseMono = requestSpec.retrieve().bodyToMono(String.class);
-        }
-
-        // 5. Execute with timeout and retry logic from the configuration.
-        return responseMono
-                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
-                .retryWhen(Retry.backoff(config.getMaxRetries(), Duration.ofMillis(500))
-                        .filter(this::isRetryableException))
-                .map(responseBody -> buildSuccessResponse(responseBody, request, startTime))
-                .doOnError(error -> {
+        // 1. Start the reactive chain by getting the configuration.
+        return apiConfigurationService.getConfiguration(request.getApiName())
+                .flatMap(config -> {
+                    boolean loggingEnabled = config.isEnableLogging();
                     if (loggingEnabled) {
-                        log.error("API call to '{}' failed: {}", request.getApiName(), error.getMessage());
+                        log.info("Executing {} {} for API: {} (timeout: {}s, retries: {})",
+                                request.getHttpMethod(), request.getEndpoint(),
+                                request.getApiName(), config.getTimeoutSeconds(), config.getMaxRetries());
                     }
+
+                    // 2. Get the base URL and static headers in parallel.
+                    Mono<String> baseUrlMono = apiConfigurationService.getBaseUrl(request.getApiName());
+                    Mono<Map<String, String>> staticHeadersMono = apiConfigurationService.getHeaders(request.getApiName());
+
+                    // 3. Combine the results when both are ready.
+                    return Mono.zip(baseUrlMono, staticHeadersMono)
+                            .flatMap(tuple -> {
+                                String baseUrl = tuple.getT1();
+                                Map<String, String> headers = tuple.getT2();
+
+                                // 4. Determine the final headers reactively.
+                                // This Mono will contain the headers, including the OAuth2 token if needed.
+                                Mono<Map<String, String>> finalHeadersMono;
+
+                                if ("oauth2".equals(config.getAuth().getAuthType())) {
+                                    // If it's OAuth2, get the token and add it to the headers.
+                                    log.debug("Auth type is OAuth2, attempting to get access token for API '{}'", request.getApiName());
+                                    finalHeadersMono = oauth2TokenService.getAccessToken(request.getApiName())
+                                            .map(token -> {
+                                                headers.put("Authorization", "Bearer " + token);
+                                                return headers;
+                                            })
+                                            // If getAccessToken returns an empty Mono (token could not be obtained),
+                                            // proceed with the original headers.
+                                            .defaultIfEmpty(headers);
+                                } else {
+                                    // If not OAuth2, use the static headers directly.
+                                    finalHeadersMono = Mono.just(headers);
+                                }
+
+                                // 5. With the final headers ready, build and execute the call.
+                                return finalHeadersMono.flatMap(finalHeaders -> {
+                                    WebClient client = webClientBuilder.baseUrl(baseUrl).build();
+
+                                    // 6. Prepare the request specification.
+                                    WebClient.RequestBodySpec requestSpec = client
+                                            .method(HttpMethod.valueOf(request.getHttpMethod().toUpperCase()))
+                                            .uri(uriBuilder -> {
+                                                uriBuilder.path(request.getPath());
+                                                if (request.getParameters() != null && isQueryParamMethod(request.getHttpMethod())) {
+                                                    request.getParameters().forEach((key, value) -> {
+                                                        if (value != null) uriBuilder.queryParam(key, value.toString());
+                                                    });
+                                                }
+                                                if ("api_key".equals(config.getAuth().getAuthType()) && "query".equalsIgnoreCase(config.getAuth().getAddApiKeyTo())) {
+                                                    uriBuilder.queryParam(config.getAuth().getApiKeyName(), config.getAuth().getApiKey());
+                                                }
+                                                return uriBuilder.build();
+                                            });
+
+                                    // 7. Apply headers and body.
+                                    finalHeaders.forEach(requestSpec::header);
+                                    if (request.getHeaders() != null) {
+                                        request.getHeaders().forEach(requestSpec::header);
+                                    }
+
+                                    Mono<String> responseMono;
+                                    if (request.getParameters() != null && !isQueryParamMethod(request.getHttpMethod())) {
+                                        responseMono = requestSpec.bodyValue(request.getParameters()).retrieve().bodyToMono(String.class);
+                                    } else {
+                                        responseMono = requestSpec.retrieve().bodyToMono(String.class);
+                                    }
+                                    
+                                    // 8. Execute with timeout and retries.
+                                    return responseMono
+                                            .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                                            .retryWhen(Retry.backoff(config.getMaxRetries(), Duration.ofMillis(500))
+                                                    .filter(this::isRetryableException))
+                                            .map(responseBody -> buildSuccessResponse(responseBody, request, startTime, loggingEnabled))
+                                            .doOnError(error -> {
+                                                if (loggingEnabled) {
+                                                    log.error("API call to '{}' failed: {}", request.getApiName(), error.getMessage());
+                                                }
+                                            });
+                                });
+                            });
                 });
     }
 
@@ -168,9 +182,9 @@ public class ApiExecutionService {
     /**
      * Builds a standardized success response object.
      */
-    private ApiCallResponse buildSuccessResponse(String responseBody, ApiCallRequest request, long startTime) {
+    private ApiCallResponse buildSuccessResponse(String responseBody, ApiCallRequest request, long startTime, boolean loggingEnabled) {
         long executionTime = System.currentTimeMillis() - startTime;
-        if (apiConfigurationService.isLoggingEnabled(request.getApiName())) {
+        if (loggingEnabled) {
             log.info("API call for '{}' completed in {}ms", request.getApiName(), executionTime);
         }
         return ApiCallResponse.success(Map.of("response", responseBody), 200, request.getConversationId())

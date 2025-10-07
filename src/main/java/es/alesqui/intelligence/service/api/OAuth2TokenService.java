@@ -12,7 +12,6 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,71 +31,71 @@ public class OAuth2TokenService {
     private final Map<String, CachedToken> tokenCache = new ConcurrentHashMap<>();
 
     /**
-     * Retrieves a valid access token for a given API.
-     * It first checks the local cache for a non-expired token. If not found or expired,
-     * it requests a new one from the authorization server.
+     * Reactively gets a valid access token for the given API, using a cache-aside pattern.
+     * It first checks for a valid, non-expired token in the cache. If not found, it
+     * fetches a new token, caches it, and then returns it.
      *
-     * @param apiName The unique name of the API requiring the token.
-     * @return A valid access token, or null if it could not be obtained.
+     * @param apiName The unique name of the API.
+     * @return A Mono emitting the access token string, or an empty Mono if a token cannot be obtained.
      */
-    public String getAccessToken(String apiName) {
-        CachedToken token = tokenCache.compute(apiName, (key, existingToken) -> {
+    public Mono<String> getAccessToken(String apiName) {
+        return Mono.defer(() -> {
+            CachedToken existingToken = tokenCache.get(apiName);
+
             if (existingToken != null && !existingToken.isExpired()) {
                 log.debug("Returning cached token for API '{}'", apiName);
-                return existingToken;
+                return Mono.just(existingToken);
             }
-            log.info("No valid token in cache for API '{}'. Fetching a new one.", apiName);
-            return fetchAndCacheNewToken(apiName);
-        });
 
-        return (token != null) ? token.getAccessToken() : null;
+            log.info("No valid token in cache for API '{}'. Fetching a new one.", apiName);
+            return fetchAndCacheNewToken(apiName)
+                    .doOnNext(newToken -> tokenCache.put(apiName, newToken));
+        })
+        .map(CachedToken::getAccessToken);
     }
 
     /**
-     * Fetches a new token from the authorization server based on the API's configuration
-     * and caches it upon success.
+     * Reactively fetches a new OAuth2 token and wraps it in a CachedToken object.
+     * This method is fully non-blocking.
      *
-     * @param apiName The API to fetch the token for.
-     * @return A new CachedToken object, or null on failure.
+     * @param apiName The name of the API.
+     * @return A Mono emitting a CachedToken on success, or an empty Mono if the configuration is invalid or fetching fails.
      */
-    private CachedToken fetchAndCacheNewToken(String apiName) {
-        ApiConfiguration.OAuth2Config oauthConfig = getOAuthConfig(apiName);
-        if (oauthConfig == null || oauthConfig.getTokenUrl() == null || oauthConfig.getGrantType() == null) {
-            log.error("OAuth 2.0 configuration is missing or invalid for API '{}'", apiName);
-            return null;
-        }
+    private Mono<CachedToken> fetchAndCacheNewToken(String apiName) {
+        return getOAuthConfig(apiName)
+                .flatMap(oauthConfig -> {
+                    if (oauthConfig == null || oauthConfig.getTokenUrl() == null || oauthConfig.getGrantType() == null) {
+                        log.error("OAuth 2.0 configuration is missing or invalid for API '{}'", apiName);
+                        return Mono.empty();
+                    }
 
-        MultiValueMap<String, String> formData = buildFormData(oauthConfig);
+                    MultiValueMap<String, String> formData = buildFormData(oauthConfig);
+                    WebClient webClient = webClientBuilder.baseUrl(oauthConfig.getTokenUrl()).build();
 
-        try {
-            WebClient webClient = webClientBuilder.baseUrl(oauthConfig.getTokenUrl()).build();
-            OAuth2TokenResponse tokenResponse = webClient.post()
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .body(BodyInserters.fromFormData(formData))
-                    .retrieve()
-                    .onStatus(
-                        status -> status.is4xxClientError() || status.is5xxServerError(),
-                        response -> response.bodyToMono(String.class)
-                            .flatMap(errorBody -> {
-                                log.error("Error response from token endpoint for '{}': {} - {}", apiName, response.statusCode(), errorBody);
-                                return Mono.error(new RuntimeException("Failed to fetch OAuth token: " + response.statusCode()));
-                            })
-                    )
-                    .bodyToMono(OAuth2TokenResponse.class)
-                    .block(Duration.ofSeconds(15)); 
-
-            if (tokenResponse != null && tokenResponse.getAccessToken() != null) {
-                log.info("Successfully fetched new token for API '{}' using grant_type '{}'", apiName, oauthConfig.getGrantType());
-                return new CachedToken(tokenResponse.getAccessToken(), tokenResponse.getExpiresIn());
-            }
-
-        } catch (Exception e) {
-            log.error("Exception while fetching OAuth token for API '{}': {}", apiName, e.getMessage());
-        }
-
-        return null;
+                    return webClient.post()
+                            .header("Content-Type", "application/x-www-form-urlencoded")
+                            .body(BodyInserters.fromFormData(formData))
+                            .retrieve()
+                            .onStatus(
+                                status -> status.is4xxClientError() || status.is5xxServerError(),
+                                response -> response.bodyToMono(String.class)
+                                    .flatMap(errorBody -> {
+                                        log.error("Error response from token endpoint for '{}': {} - {}", apiName, response.statusCode(), errorBody);
+                                        return Mono.error(new RuntimeException("Failed to fetch OAuth token: " + response.statusCode()));
+                                    })
+                            )
+                            .bodyToMono(OAuth2TokenResponse.class)
+                            .doOnSuccess(tokenResponse -> {
+                                 if(tokenResponse != null && tokenResponse.getAccessToken() != null) {
+                                    log.info("Successfully fetched new token for API '{}' using grant_type '{}'", apiName, oauthConfig.getGrantType());
+                                 }
+                            });
+                })
+                .map(tokenResponse -> new CachedToken(tokenResponse.getAccessToken(), tokenResponse.getExpiresIn()))
+                .doOnError(e -> log.error("Exception while fetching OAuth token for API '{}': {}", apiName, e.getMessage()))
+                .onErrorResume(e -> Mono.empty());
     }
-
+    
     /**
      * Constructs the form data for the token request based on the OAuth 2.0 configuration.
      *
@@ -125,16 +124,14 @@ public class OAuth2TokenService {
     }
 
     /**
-     * Retrieves the unified OAuth2Config for a given API.
+     * Reactively retrieves the unified OAuth2Config for a given API.
      *
      * @param apiName The name of the API.
-     * @return The OAuth2Config object.
+     * @return A Mono emitting the OAuth2Config object.
      */
-    private ApiConfiguration.OAuth2Config getOAuthConfig(String apiName) {
-        // This assumes ApiConfigurationService can provide the full config by name
+    private Mono<ApiConfiguration.OAuth2Config> getOAuthConfig(String apiName) {
         return apiConfigurationService.getConfiguration(apiName)
-                .getAuth()
-                .getOauth2(); 
+                .map(config -> config.getAuth().getOauth2()); 
     }
 
     // --- INNER CLASSES (OAuth2TokenResponse and CachedToken) remain the same ---

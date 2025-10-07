@@ -87,7 +87,7 @@ public class ApiConfiguration {
 
         /**
          * The type of authentication to use.
-         * Possible values: "none", "api_key", "bearer", "basic", "oauth2_client_credentials".
+         * Possible values: "none", "api_key", "bearer", "basic", "oauth2".
          */
         @Field("authType")
         @JsonProperty("authType")
