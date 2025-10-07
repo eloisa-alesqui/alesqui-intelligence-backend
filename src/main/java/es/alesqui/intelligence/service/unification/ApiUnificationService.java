@@ -1,10 +1,7 @@
 package es.alesqui.intelligence.service.unification;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.lang.Nullable;
@@ -63,7 +60,6 @@ public class ApiUnificationService {
             .description(swaggerDoc.getDescription())
             .sourceSwaggerId(swaggerDoc.getId())
             .sourcePostmanId(postmanId) 
-            .tags(mergeTags(swaggerDoc.getTags(), postmanTags)) 
             .team(swaggerDoc.getTeam() != null ? swaggerDoc.getTeam() : postmanTeam) 
             .createdBy(swaggerDoc.getCreatedBy())
             .active(swaggerDoc.isActive() && isPostmanActive); 
@@ -96,30 +92,6 @@ public class ApiUnificationService {
         log.info("API unification completed: {}", unifiedDoc.getName());
         return unifiedDoc;
     }
-
-    /**
-	 * Merges two lists of tags into a single list, removing duplicates and
-	 * preserving order.
-	 * 
-	 * @param tags1 The first list of tags.
-	 * @param tags2 The second list of tags.
-	 * @return A merged list of unique tags.
-	 */
-	@HandleApiUnificationException
-	private List<String> mergeTags(List<String> tags1, List<String> tags2) {
-		log.debug("Merging tags from two sources");
-
-		Set<String> merged = new LinkedHashSet<>();
-
-		if (tags1 != null) {
-			tags1.stream().filter(tag -> tag != null && !tag.trim().isEmpty()).forEach(tag -> merged.add(tag.trim()));
-		}
-		if (tags2 != null) {
-			tags2.stream().filter(tag -> tag != null && !tag.trim().isEmpty()).forEach(tag -> merged.add(tag.trim()));
-		}
-
-		return new ArrayList<>(merged);
-	}
 
 	/**
      * Saves a Unified API document.
@@ -171,5 +143,6 @@ public class ApiUnificationService {
         return springAIService.chatWithoutMemory(systemPrompt, userPrompt)
                 .block(chatConfig.getUtilityAi().getTimeout()); 
     }
+    
 }
 

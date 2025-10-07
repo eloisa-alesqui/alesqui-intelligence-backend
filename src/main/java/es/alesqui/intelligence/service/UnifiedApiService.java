@@ -173,6 +173,28 @@ public class UnifiedApiService {
                     return unifiedApiRepository.save(document);
                 });
     }
+    
+    /**
+     * Updates the 'active' status of a specific API document.
+     *
+     * @param apiId The unique identifier of the API document to update.
+     * @param active The new status to set (true for active, false for inactive).
+     * @return A Mono containing the updated document, or an error if not found.
+     */
+    @Transactional
+    public Mono<UnifiedApiDocument> updateApiStatus(String apiId, boolean active) {
+        log.info("Updating status for API with id: {} to active={}", apiId, active);
+
+        return unifiedApiRepository.findById(apiId)
+                .switchIfEmpty(Mono.error(new DocumentNotFoundException("API not found with id: " + apiId)))
+                .flatMap(document -> {
+                    document.setActive(active);
+                    document.setUpdatedAt(Instant.now()); // Update modification timestamp
+                    return unifiedApiRepository.save(document);
+                })
+                .doOnSuccess(savedDoc -> log.info("Successfully updated status for API '{}'", savedDoc.getName()))
+                .doOnError(error -> log.error("Error updating status for API with ID: {}", apiId, error));
+    }
 
     /**
      * Deletes a UnifiedApiDocument and its corresponding Swagger and Postman documents.

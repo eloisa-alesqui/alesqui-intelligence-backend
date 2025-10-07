@@ -1,5 +1,7 @@
 package es.alesqui.intelligence.controller;
 
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.Nullable;
@@ -76,6 +78,30 @@ public class ApiUnificationController {
                     log.error("Failed to update configuration for API '{}': {}", apiName, e.getMessage());
                     return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
                 });
+    }
+    
+    /**
+     * Partially updates an API document, specifically its 'active' status.
+     *
+     * @param id The unique identifier of the UnifiedApiDocument.
+     * @param statusUpdate A map containing the 'active' key, e.g., { "active": true }.
+     * @return A Mono with the updated UnifiedApiDocument.
+     */
+    @PatchMapping("/{id}/status")
+    public Mono<ResponseEntity<UnifiedApiDocument>> updateApiStatus(
+            @PathVariable String id,
+            @RequestBody Map<String, Boolean> statusUpdate) {
+        
+        Boolean active = statusUpdate.get("active");
+        if (active == null) {
+            // Return a Bad Request error if the 'active' key is missing from the body
+            return Mono.just(ResponseEntity.badRequest().build());
+        }
+
+        log.info("PATCH request to update status for unification id: {}", id);
+        return unifiedApiService.updateApiStatus(id, active)
+                .map(ResponseEntity::ok)
+                .defaultIfEmpty(ResponseEntity.notFound().build());
     }
     
     /**

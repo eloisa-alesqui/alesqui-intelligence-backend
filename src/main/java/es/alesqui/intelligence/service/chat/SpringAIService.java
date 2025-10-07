@@ -264,7 +264,7 @@ public class SpringAIService {
 					// Check if a chart was created by a tool and capture its data.
 					if (toolResponseMessage instanceof ToolResponseMessage toolResponse) {
 						for (ToolResponseMessage.ToolResponse detailedResponse : toolResponse.getResponses()) {
-							if ("createChart".equals(detailedResponse.name())) {
+							if ("create_chart".equals(detailedResponse.name())) {
 								try {
 									capturedChartData = objectMapper.readValue(detailedResponse.responseData(),
 											ChartData.class);

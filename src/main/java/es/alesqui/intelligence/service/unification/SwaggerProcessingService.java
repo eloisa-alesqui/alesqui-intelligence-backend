@@ -5,7 +5,10 @@ import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
 import io.swagger.v3.oas.models.servers.ServerVariables;
+import io.swagger.v3.oas.models.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+
+import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.annotation.HandleApiUnificationException;
@@ -42,6 +45,7 @@ public class SwaggerProcessingService {
 
         log.debug("Extracting Swagger/OpenAPI information");
         extractBasicApiInfo(builder, openApi);
+        extractTags(builder, openApi);
         extractServerConfigurations(builder, openApi);
         extractSchemaDefinitions(builder, openApi);
         extractAuthenticationSchemes(builder, openApi);
@@ -281,6 +285,53 @@ public class SwaggerProcessingService {
             .propertyName(discriminator.getPropertyName())
             .mapping(discriminator.getMapping())
             .build();
+    }
+    
+    /**
+     * Extracts and converts the global tag definitions from the OpenAPI document.
+     * Tags are used for logical grouping of operations.
+     *
+     * @param builder The builder for the unified API document.
+     * @param openApi The OpenAPI object containing the tag definitions.
+     */
+    @HandleApiUnificationException
+    public void extractTags(UnifiedApiDocument.UnifiedApiDocumentBuilder builder, OpenAPI openApi) {
+        // The 'tags' section in OpenAPI is optional.
+        if (CollectionUtils.isEmpty(openApi.getTags())) {
+            log.debug("No global tag definitions found in OpenAPI document. Skipping tag extraction.");
+            return;
+        }
+
+        List<Tag> swaggerTags = openApi.getTags();
+        log.debug("Processing {} global tag definitions from OpenAPI document.", swaggerTags.size());
+
+        List<UnifiedTag> unifiedTags = convertToUnifiedTags(swaggerTags);
+        builder.tags(unifiedTags);
+
+        log.debug("Successfully extracted and converted {} tags.", unifiedTags.size());
+    }
+
+    /**
+     * Converts a list of Swagger {@link Tag} objects to a list of {@link UnifiedTag} objects.
+     * This method handles null or empty input lists gracefully by returning an empty list.
+     *
+     * @param swaggerTags The list of tags from the Swagger document. Can be null.
+     * @return A non-null list of {@link UnifiedTag} objects; will be empty if the input is null or empty.
+     */
+    private List<UnifiedTag> convertToUnifiedTags(List<Tag> swaggerTags) {
+        // Return an immutable empty list for null or empty inputs.
+        // This is a defensive programming best practice to prevent NullPointerExceptions downstream.
+        if (CollectionUtils.isEmpty(swaggerTags)) {
+            return Collections.emptyList();
+        }
+
+        // Transform each Swagger Tag into a UnifiedTag using a stream.
+        return swaggerTags.stream()
+                .map(tag -> UnifiedTag.builder()
+                        .name(tag.getName())
+                        .description(tag.getDescription())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     /**

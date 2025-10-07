@@ -110,10 +110,11 @@ public class UnifiedApiDocument {
 
     /**
      * A list of tags associated with the API for categorization or organization.
+     * Each tag can have a name and a description.
      */
     @Field("tags")
     @JsonProperty("tags")
-    private List<String> tags;
+    private List<UnifiedTag> tags;
 
     /**
      * The name of the team or group responsible for maintaining the API.

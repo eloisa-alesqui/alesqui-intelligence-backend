@@ -10,6 +10,7 @@ import es.alesqui.intelligence.exception.ApiExecutionException;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedTag;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import es.alesqui.intelligence.service.api.ApiExecutionService;
 import lombok.RequiredArgsConstructor;
@@ -61,16 +62,27 @@ public class ApiActionTools {
             }
 
             return "Available APIs:\n" + apis.stream()
-                .map(api -> String.format(
-                    "• Name: %s\n  - Description: %s\n  - Tags: [%s]\n  - Capabilities: %s",
-                    api.getName(),
-                    api.getDescription(),
-                    (api.getTags() != null && !api.getTags().isEmpty()) ? String.join(", ", api.getTags()) : "none",
-                    (api.getCapabilitiesSummary() != null && !api.getCapabilitiesSummary().isBlank()) 
-                        ? api.getCapabilitiesSummary() 
-                        : "Not available"
-                ))
-                .collect(Collectors.joining("\n\n")); // Double newline for better readability between APIs
+                .map(api -> {
+                    String tagsString = "none";
+                    if (api.getTags() != null && !api.getTags().isEmpty()) {
+                        tagsString = api.getTags().stream()
+                                        .map(UnifiedTag::getName) 
+                                        .collect(Collectors.joining(", "));
+                    }
+
+                    String capabilities = (api.getCapabilitiesSummary() != null && !api.getCapabilitiesSummary().isBlank())
+                                          ? api.getCapabilitiesSummary()
+                                          : "Not available";
+                    
+                    return String.format(
+                        "• Name: %s\n  - Description: %s\n  - Tags: [%s]\n  - Capabilities: %s",
+                        api.getName(),
+                        api.getDescription(),
+                        tagsString,
+                        capabilities
+                    );
+                })
+                .collect(Collectors.joining("\n\n"));
         } catch (Exception e) {
             log.error("Error in listApis tool", e);
             return "Error while trying to list APIs: " + e.getMessage();
