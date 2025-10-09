@@ -29,13 +29,19 @@ public class ChatConfig {
    * General timeout for chat processing
    */
   @NotNull
-  private Duration processingTimeout = Duration.ofSeconds(30);
+  private Duration processingTimeout = Duration.ofSeconds(120);
+  
+  /**
+   * Timeout for operations without tools/APIs
+   */
+  @NotNull
+  private Duration processingDirectTimeout = Duration.ofSeconds(10);
   
   /**
    * Timeout for operations with tools/APIs
    */
   @NotNull
-  private Duration toolsTimeout = Duration.ofSeconds(60);
+  private Duration toolsTimeout = Duration.ofSeconds(120);
   
   /**
    * Time threshold to show warnings (in milliseconds)

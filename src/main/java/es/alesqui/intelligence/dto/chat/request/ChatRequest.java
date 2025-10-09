@@ -50,7 +50,7 @@ public class ChatRequest {
 	 * indicate no timeout.
 	 */
 	@Min(value = 0, message = "Timeout cannot be negative")
-	private int timeoutSeconds = 60;
+	private int timeoutSeconds = 120;
 
 	/**
 	 * Preferred language for the response. Uses ISO 639-1 language codes (e.g.,
@@ -85,7 +85,7 @@ public class ChatRequest {
 	 * @return new ChatRequest configured for ReAct
 	 */
 	public static ChatRequest withReAct(String query, String conversationId, int maxIterations) {
-		return new ChatRequest(query, conversationId, true, maxIterations, 60, "en", true);
+		return new ChatRequest(query, conversationId, true, maxIterations, 100, "en", true);
 	}
 
 	/**

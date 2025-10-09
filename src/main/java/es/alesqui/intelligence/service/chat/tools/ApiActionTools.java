@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.alesqui.intelligence.dto.chat.request.ApiCallRequest;
 import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
+import es.alesqui.intelligence.dto.chat.response.StructuredApiError;
 import es.alesqui.intelligence.exception.ApiExecutionException;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
@@ -33,11 +34,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.Month;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -189,7 +199,7 @@ public class ApiActionTools {
             
         } catch (Exception e) {
             log.error("Error in callApi tool - API: '{}', Operation: '{}'", apiName, operationId, e);
-            return createFallbackResponse(apiName, operationId, e);
+            return createStructuredErrorResponse(apiName, operationId, e);
         }
     }
     
@@ -219,10 +229,32 @@ public class ApiActionTools {
         return resolvedPath;
     }
 
-	private ApiCallResponse createFallbackResponse(String apiName, String operationId, Exception e) {
-		return ApiCallResponse.failure("API execution failed: " + e.getMessage(), 503)
-				.withApiDetails(apiName, operationId).withExecutionTime(0L);
-	}
+    private ApiCallResponse createStructuredErrorResponse(String apiName, String operationId, Exception e) {
+        StructuredApiError.StructuredApiErrorBuilder errorBuilder = StructuredApiError.builder()
+            .message(e.getMessage());
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("apiNameAttempted", apiName);
+        details.put("operationIdAttempted", operationId);
+
+        int statusCode = 500;
+
+        if (e instanceof IllegalArgumentException) {
+            errorBuilder.errorType("INVALID_PARAMETERS");
+            statusCode = 400; // Bad Request
+        } else if (e instanceof ApiExecutionException) {
+            errorBuilder.errorType("API_EXECUTION_FAILED");
+            statusCode = 502; // Bad Gateway 
+        } else {
+            errorBuilder.errorType("INTERNAL_TOOL_ERROR");
+        }
+
+        errorBuilder.details(details);
+
+        return ApiCallResponse.failure(errorBuilder.build(), statusCode)
+                .withApiDetails(apiName, operationId)
+                .withExecutionTime(0L);
+    }
 
 	/**
      * Parses the parameters string into a Map
@@ -408,6 +440,225 @@ public class ApiActionTools {
                                      color.getBlue());
             })
             .collect(Collectors.toList()); // Collect the results into a list.
+    }
+    
+    @Tool(name = "process_data", description = "Analyzes a JSON array of objects to perform operations like filtering, counting, grouping, or aggregating. Use this after calling an API to extract specific insights from the data.")
+    public String processData(
+        @ToolParam(description = "A JSON string representing an array of objects to be processed.") String jsonData,
+        @ToolParam(description = "The operation to perform. Supported values: 'COUNT', 'FILTER', 'GROUP_BY_COUNT', 'GROUP_BY_DATE_PART_COUNT', 'SUM', 'AVERAGE'.") String operation,
+        @ToolParam(description = "Optional: A filter expression, e.g., \"status=='ACTIVE'\" or \"price>100\". Supported operators: ==, !=, >, <, >=, <=.") String filterExpression,
+        @ToolParam(description = "Optional: The key to group by. Required for 'GROUP_BY_COUNT', 'SUM', or 'AVERAGE' operations.") String groupByKey,
+        @ToolParam(description = "Optional: The key whose values will be summed or averaged. Required for 'SUM' or 'AVERAGE' operations.") String valueKey,
+        @ToolParam(description = "Optional: The key containing the date string (ISO format). Required for 'GROUP_BY_DATE_PART_COUNT'.") String dateKey,
+        @ToolParam(description = "Optional: The date part to group by (e.g., 'QUARTER', 'MONTH', 'YEAR'). Required for 'GROUP_BY_DATE_PART_COUNT'.") String datePart
+    ) {
+        log.info("Executing tool: processData with operation '{}'", operation);
+        try {
+            List<Map<String, Object>> data = objectMapper.readValue(jsonData, new TypeReference<>() {});
+            if (data.isEmpty()) {
+                return "{\"result\": \"The provided JSON data is empty.\"}";
+            }
+
+            // 1. Create a filtered stream ONCE at the beginning
+            Stream<Map<String, Object>> filteredStream = data.stream();
+            if (StringUtils.isNotBlank(filterExpression)) {
+                filteredStream = filteredStream.filter(createFilterPredicate(filterExpression));
+            }
+            // Convert the stream to a list to be reused by operations
+            List<Map<String, Object>> filteredData = filteredStream.collect(Collectors.toList());
+
+            Object result;
+            switch (operation.toUpperCase()) {
+                case "COUNT":
+                    // The count is now performed on the pre-filtered data
+                    result = Map.of("count", filteredData.size());
+                    break;
+
+                case "FILTER":
+                    // The filter is already applied, just return the result
+                    result = filteredData;
+                    break;
+                    
+                case "GROUP_BY_COUNT":
+                    if (StringUtils.isBlank(groupByKey)) {
+                        throw new IllegalArgumentException("A 'groupByKey' is required for 'GROUP_BY_COUNT' operation.");
+                    }
+                    // Apply the filter BEFORE grouping
+                    result = filteredData.stream()
+                        .collect(Collectors.groupingBy(row -> String.valueOf(row.getOrDefault(groupByKey, "N/A")), Collectors.counting()));
+                    break;
+                    
+                case "GROUP_BY_DATE_PART_COUNT":
+                    if (StringUtils.isBlank(dateKey) || StringUtils.isBlank(datePart)) {
+                        throw new IllegalArgumentException("A 'dateKey' and 'datePart' are required for 'GROUP_BY_DATE_PART_COUNT'");
+                    }
+                    // Apply the filter BEFORE grouping
+                    result = filteredData.stream()
+                        .collect(Collectors.groupingBy(row -> extractDatePart(String.valueOf(row.get(dateKey)), datePart), Collectors.counting()));
+                    break;
+                
+                case "SUM":
+                case "AVERAGE":
+                    if (StringUtils.isBlank(groupByKey) || StringUtils.isBlank(valueKey)) {
+                        throw new IllegalArgumentException("A 'groupByKey' and 'valueKey' are required for SUM/AVERAGE operations.");
+                    }
+                    
+                    java.util.function.ToDoubleFunction<Map<String, Object>> mapper = 
+                        row -> Double.parseDouble(String.valueOf(row.getOrDefault(valueKey, "0")));
+
+                    if (operation.equalsIgnoreCase("SUM")) {
+                        result = filteredData.stream()
+                            .collect(Collectors.groupingBy(row -> String.valueOf(row.getOrDefault(groupByKey, "N/A")), 
+                                                           Collectors.summingDouble(mapper)));
+                    } else { // AVERAGE
+                        result = filteredData.stream()
+                            .collect(Collectors.groupingBy(row -> String.valueOf(row.getOrDefault(groupByKey, "N/A")), 
+                                                           Collectors.averagingDouble(mapper)));
+                    }
+                    break;
+
+                default:
+                    throw new IllegalArgumentException("Unsupported operation: " + operation + ". Supported operations are: COUNT, FILTER, GROUP_BY_COUNT, GROUP_BY_DATE_PART_COUNT, SUM, AVERAGE.");
+            }
+            
+            return objectMapper.writeValueAsString(result);
+        } catch (Exception e) {
+            log.error("Error executing processData tool: {}", e.getMessage(), e);
+            return "{\"error\": \"Failed to process data. Reason: " + e.getMessage() + "\"}";
+        }
+    }
+    
+    /**
+     * Creates a Predicate from a filter expression like "key==value" or "key>value".
+     * It automatically handles numeric and string comparisons.
+     *
+     * @param filterExpression The filter string to parse. Supported operators are
+     * ==, !=, >, <, >=, <=.
+     * @return A Predicate suitable for filtering a stream of maps.
+     */
+    private Predicate<Map<String, Object>> createFilterPredicate(String filterExpression) {
+        // Regex to capture the key, operator, and value from the expression
+        Pattern pattern = Pattern.compile("(.+?)(==|!=|>=|<=|>|<)(.+)");
+        Matcher matcher = pattern.matcher(filterExpression.trim());
+
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Invalid filter format. Expected: key[operator]value. Supported operators: ==, !=, >, <, >=, <=");
+        }
+
+        String key = matcher.group(1).trim();
+        String operator = matcher.group(2).trim();
+        String valueStr = matcher.group(3).trim();
+
+        // Clean quotes from the value string
+        if ((valueStr.startsWith("'") && valueStr.endsWith("'")) || (valueStr.startsWith("\"") && valueStr.endsWith("\""))) {
+            valueStr = valueStr.substring(1, valueStr.length() - 1);
+        }
+        final String finalValue = valueStr;
+
+        return map -> {
+        	Object mapValue = getNestedValue(map, key);
+            if (mapValue == null) {
+                return false;
+            }
+
+            // Attempt a numeric comparison first
+            try {
+                double mapValueNum = Double.parseDouble(mapValue.toString());
+                double filterValueNum = Double.parseDouble(finalValue);
+                switch (operator) {
+                    case "==": return mapValueNum == filterValueNum;
+                    case "!=": return mapValueNum != filterValueNum;
+                    case ">":  return mapValueNum > filterValueNum;
+                    case "<":  return mapValueNum < filterValueNum;
+                    case ">=": return mapValueNum >= filterValueNum;
+                    case "<=": return mapValueNum <= filterValueNum;
+                }
+            } catch (NumberFormatException e) {
+                // If numeric parsing fails, fall back to a string comparison
+                int comparison = mapValue.toString().compareToIgnoreCase(finalValue);
+                switch (operator) {
+                    case "==": return comparison == 0;
+                    case "!=": return comparison != 0;
+                    case ">":  return comparison > 0;
+                    case "<":  return comparison < 0;
+                    case ">=": return comparison >= 0;
+                    case "<=": return comparison <= 0;
+                }
+            }
+            return false;
+        };
+    }
+    
+    /**
+     * Retrieves a value from a nested map structure using a dot-notation key.
+     *
+     * @param map The map to search within.
+     * @param nestedKey The dot-separated key (e.g., "shippingAddress.city").
+     * @return The found value, or null if the path is invalid or the key doesn't exist.
+     */
+    private Object getNestedValue(Map<String, Object> map, String nestedKey) {
+        String[] parts = nestedKey.split("\\.");
+        Object currentValue = map;
+        for (String part : parts) {
+            if (!(currentValue instanceof Map)) {
+                return null; // The path is invalid
+            }
+            currentValue = ((Map<String, Object>) currentValue).get(part);
+            if (currentValue == null) {
+                return null; // The key does not exist at this level
+            }
+        }
+        return currentValue;
+    }
+    
+    /**
+     * Extracts a specific part (e.g., quarter, month, year) from a date string.
+     * This method robustly parses date strings in ISO-8601 format, accommodating
+     * inputs both with and without UTC offset information.
+     *
+     * @param dateString The date string to process, such as "2025-10-21T10:00:00Z"
+     * or "2025-10-21T10:00:00".
+     * @param part The component of the date to extract. Supported values are
+     * "QUARTER", "MONTH", and "YEAR" (case-insensitive).
+     * @return A string representing the extracted date part (e.g., "Quarter 3",
+     * "OCTOBER", "2025"). Returns a descriptive error string if the
+     * operation fails.
+     */
+    private String extractDatePart(String dateString, String part) {
+        if (dateString == null || dateString.equals("null")) {
+            return "Invalid Date";
+        }
+        try {
+            // Use a common interface to handle both date/time types
+            TemporalAccessor parsedDate;
+            try {
+                // 1. Attempt to parse as OffsetDateTime (with timezone info)
+                parsedDate = OffsetDateTime.parse(dateString);
+            } catch (DateTimeParseException e) {
+                // 2. If it fails, attempt to parse as LocalDateTime (without timezone info)
+                parsedDate = LocalDateTime.parse(dateString);
+            }
+
+            // Extract values using the common interface
+            int monthValue = parsedDate.get(ChronoField.MONTH_OF_YEAR);
+            int yearValue = parsedDate.get(ChronoField.YEAR);
+
+            switch (part.toUpperCase()) {
+                case "QUARTER":
+                    int quarter = (monthValue - 1) / 3 + 1;
+                    return "Quarter " + quarter;
+                case "MONTH":
+                    return Month.of(monthValue).toString();
+                case "YEAR":
+                    return String.valueOf(yearValue);
+                default:
+                    return "Unknown Part";
+            }
+        } catch (DateTimeParseException e) {
+            // This catches the failure of the second (fallback) parsing attempt
+            log.warn("Could not parse date after multiple attempts: {}", dateString);
+            return "Invalid Date Format";
+        }
     }
  
 }

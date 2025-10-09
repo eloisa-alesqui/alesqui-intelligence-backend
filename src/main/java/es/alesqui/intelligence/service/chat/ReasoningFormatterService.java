@@ -85,7 +85,7 @@ public class ReasoningFormatterService {
     /**
      * Default timeout duration for AI processing operations.
      */
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(120);
     
     /**
      * Default error message returned when the service encounters technical difficulties.

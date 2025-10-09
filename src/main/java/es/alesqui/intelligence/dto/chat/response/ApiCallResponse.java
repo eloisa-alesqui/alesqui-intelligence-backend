@@ -101,6 +101,19 @@ public class ApiCallResponse {
 	}
 	
 	/**
+	 * Creates a failure response with a structured error object in the response
+	 * body. This is used to provide detailed, machine-readable errors to the AI.
+	 *
+	 * @param errorBody      The structured error object (e.g., StructuredApiError).
+	 * @param statusCode     The HTTP status code representing the error.
+	 * @return ApiCallResponse for a structured failure.
+	 */
+	public static ApiCallResponse failure(Object errorBody, int statusCode) {
+		return ApiCallResponse.builder().success(false).responseData(errorBody).statusCode(statusCode)
+				.timestamp(Instant.now()).build();
+	}
+	
+	/**
 	 * Creates a failed API call response.
 	 *
 	 * @param errorMessage   description of the error

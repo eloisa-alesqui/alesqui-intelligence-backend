@@ -63,7 +63,9 @@ public class ChatOrchestrationService {
                 .flatMap(this::classifyQuery)
                 .flatMap(classification -> routeQuery(request, classification));
 
-        return ensureMemoryLoaded.then(processingMono).flatMap(response -> {
+        return ensureMemoryLoaded.then(processingMono)
+        		.timeout(chatConfig.getProcessingTimeout())
+        		.flatMap(response -> {
 
             Mono<Void> saveSuccessOperation = SecurityUtils.getCurrentUsername()
                     .flatMap(username -> conversationService.saveInteraction(request, response, username))
@@ -143,7 +145,7 @@ public class ChatOrchestrationService {
     private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request) {
         Instant startTime = Instant.now();
         String systemPrompt = """
-            You are a friendly, conversational, and highly efficient AI assistant named 'GISO Assistant'. Your purpose is to help users by interacting with the available APIs.
+            You are a friendly, conversational, and highly efficient AI assistant named 'Alesqui'. Your purpose is to help users by interacting with the available APIs.
 
             **Your Personality and Communication Style:**
             1.  **Friendly Tone:** Start the conversation with a suitable greeting (e.g., "Hi there!", "Of course!", "Understood, let me check...") and maintain a helpful and approachable tone. If the user greets you (e.g., "Good evening"), respond to the greeting.
@@ -158,14 +160,20 @@ public class ChatOrchestrationService {
             2.  **Use Tools Intelligently:** Always use the `list_apis` tool first to discover the available operations before attempting to call an API. Do not guess endpoint names or parameters.
             3.  **Be Resourceful:** If a tool call fails, analyze the error, correct your approach, and try again. If it persists, inform the user clearly.
             4.  **Stay Focused:** Only use the provided tools. Do not invent tools.
+            5.  **Do Not Assume Tool Capabilities:** Only use tool parameters as documented. For example, `process_data` can only group by keys that exist in the data. It cannot automatically calculate quarters from a date. If you need to transform data, you must do it in a separate step or with a different tool.
 
             **Tool Reference:**
             - `list_apis()`: Lists all configured and available APIs in the system.
             - `list_endpoints(apiName)`: Lists all operations for a specific API.
             - `call_api(apiName, operationId, parameters)`: Executes a specific API operation.
+            - `process_data(jsonData, operation, filterExpression, groupByKey)`: Analyzes JSON data. Operations: 'COUNT', 'FILTER', 'GROUP_BY_COUNT'.
             - `create_excel_file(jsonData, filename)`: Generates an Excel file from a JSON array.
             - `create_chart(chartType, jsonData, labelKey, dataKey, datasetLabel)`: Generates a chart configuration object.
 
+            **Workflow for Data Analysis:**
+		    1.  First, obtain the raw data by calling the most relevant API using `call_api`.
+		    2.  Then, use `process_data` on the result of `call_api` to answer the user's specific question (e.g., counting items, filtering by a specific field).
+            
             **Workflow for Creating Files (Excel):**
             1.  Obtain the necessary data by calling an API using `call_api`.
             2.  Ensure the result is a valid JSON array.
@@ -217,10 +225,10 @@ public class ChatOrchestrationService {
         Instant startTime = Instant.now();
         
         return springAIService.chat(
-        	"You are a friendly and conversational AI assistant. Your goal is to provide clear and accurate answers in a helpful tone.",
+        	"You are a friendly and conversational AI assistant named 'Alesqui'. Your goal is to provide clear and accurate answers in a helpful tone.",
             request.getQuery(),
             request.getConversationId()
-        ).timeout(chatConfig.getProcessingTimeout())
+        ).timeout(chatConfig.getProcessingDirectTimeout())
         .map(responseContent -> {
             long processingTime = Duration.between(startTime, Instant.now()).toMillis();
             return ChatResponse.builder()
