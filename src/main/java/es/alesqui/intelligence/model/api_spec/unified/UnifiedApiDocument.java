@@ -195,4 +195,14 @@ public class UnifiedApiDocument {
     @Field("capabilitiesSummary")
     @JsonProperty("capabilitiesSummary")
     private String capabilitiesSummary;
+    
+    /**
+     * A set of AI-generated business capabilities for the API.
+     * This object is pre-calculated during unification to provide users with a
+     * high-level guide on the types of information they can request. It is displayed
+     * in the chat UI to help users understand the agent's scope of knowledge.
+     */
+    @Field("capabilities")
+    @JsonProperty("capabilities")
+    private GeneratedCapabilities capabilities;
 }

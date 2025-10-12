@@ -14,15 +14,15 @@ import es.alesqui.intelligence.config.ChatConfig;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
-import es.alesqui.intelligence.dto.chat.response.ClassificationResponse;
 import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.security.SecurityUtils;
-import es.alesqui.intelligence.service.chat.DynamicApiQueryClassifierService.QueryType;
 import es.alesqui.intelligence.service.conversation.ChatMemoryService;
 import es.alesqui.intelligence.service.conversation.ConversationService;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 /**
  * Asynchronous orchestration service implementing the ReAct pattern for chat-based API interactions.
@@ -33,7 +33,6 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class ChatOrchestrationService {
 
-    private final DynamicApiQueryClassifierService classifierService;
     private final SpringAIService springAIService;
     private final ChatConfig chatConfig;
     private final ConversationService conversationService;
@@ -121,8 +120,7 @@ public class ChatOrchestrationService {
             // This Mono represents the core logic for generating a response.
             Mono<ChatResponse> responseGenerator = Mono.just(request)
                     .doOnNext(this::validateRequest)
-                    .flatMap(this::classifyQuery)
-                    .flatMap(classification -> routeQuery(request, classification, sink));
+                    .flatMap(req -> executeToolBasedResponse(request, sink));
 
             return memoryLoader
                 .then(responseGenerator)
@@ -162,47 +160,6 @@ public class ChatOrchestrationService {
             throw new IllegalArgumentException("Invalid chat request parameters");
         }
     }
-
-    /**
-     * Classifies the query reactively to determine if API calls are needed.
-     *
-     * @param request The chat request.
-     * @return A Mono emitting the ClassificationResponse.
-     */
-    private Mono<ClassificationResponse> classifyQuery(ChatRequest request) {
-        if (request.isForceReAct()) {
-            log.info("🔄 Forcing ReAct processing for query");
-            return Mono.just(ClassificationResponse.toolQuery(
-                "Forced ReAct processing", request.getConversationId(), QueryType.DATA_QUERY));
-        }
-
-        return classifierService.classifyQuery(request.getQuery(), request.getConversationId())
-            .timeout(chatConfig.getClassificationTimeout())
-            .doOnError(e -> log.warn("Classification failed or timed out, defaulting to ReAct: {}", e.getMessage()))
-            .onErrorResume(e -> Mono.just(ClassificationResponse.uncertain(
-                "Classification failed - defaulting to ReAct", request.getConversationId())));
-    }
-
-    /**
-     * Routes the query to the appropriate handler based on the classification result.
-     *
-     * This method acts as a switch, directing the user's request to either the
-     * tool-based ReAct flow if API interaction is needed, or to the direct
-     * conversational flow for simple questions.
-     *
-     * @param request The original chat request.
-     * @param classification The result of the classification step.
-     * @return A Mono that will resolve to the final ChatResponse from the selected flow.
-     */
-    private Mono<ChatResponse> routeQuery(ChatRequest request, ClassificationResponse classification, Sinks.Many<SseEvent> sink) {
-        if (classification.shouldUseReAct()) {
-            log.info("✅ Query requires API calls - Starting ReAct flow");
-            return executeToolBasedResponse(request, sink);
-        } else {
-            log.info("💬 Query doesn't require API calls - Using direct response");
-            return generateDirectResponse(request);
-        }
-    }
     
     /**
      * Executes the tool-based (ReAct) chat flow.
@@ -216,10 +173,16 @@ public class ChatOrchestrationService {
      */
     private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request, Sinks.Many<SseEvent> sink) {
         Instant startTime = Instant.now();
-        // NOTE: The system prompt has been updated to reflect the new tool capabilities.
-        String systemPrompt = """
+        
+        // Get the current date and format it.
+        String currentDate = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE); // e.g., "2025-10-12"
+        
+        String systemPromptTemplate = """
             You are a friendly, conversational, and highly efficient AI assistant named 'Alesqui'. Your purpose is to help users by interacting with the available APIs.
             
+            **CRITICAL CONTEXT:**
+        	- **Today's Date is: %s**. You MUST use this date to resolve any relative date queries like 'today', 'yesterday', 'last quarter', etc.
+           
             **Your Personality and Communication Style:**
             1.  **Friendly Tone:** Start with a suitable greeting and maintain a helpful, approachable tone.
             2.  **Clarity:** Summarize results in a clear and friendly manner.
@@ -259,6 +222,8 @@ public class ChatOrchestrationService {
             4.  **CRITICAL:** After `create_chart` is called, your task is complete. Your final answer must be a brief summary.
             5.  **DO NOT** include the raw JSON chart configuration in your final response.
             """;
+        
+        String systemPrompt = String.format(systemPromptTemplate, currentDate);
             
         return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning(), sink)
             .timeout(chatConfig.getToolsTimeout())
@@ -283,34 +248,6 @@ public class ChatOrchestrationService {
                         .processingTimeMs(processingTime)
                         .build();
             });
-    }
-
-    /**
-     * Generates a direct conversational response without using any external tools.
-     * This is used when the query classifier determines that no API calls are necessary.
-     *
-     * @param request The original chat request.
-     * @return A Mono emitting the direct ChatResponse from the AI model.
-     */
-    private Mono<ChatResponse> generateDirectResponse(ChatRequest request) {
-
-        Instant startTime = Instant.now();
-        
-        return springAIService.chat(
-            "You are a friendly and conversational AI assistant named 'Alesqui'. Your goal is to provide clear and accurate answers in a helpful tone.",
-            request.getQuery(),
-            request.getConversationId()
-        ).timeout(chatConfig.getProcessingDirectTimeout())
-        .map(responseContent -> {
-            long processingTime = Duration.between(startTime, Instant.now()).toMillis();
-            return ChatResponse.builder()
-                .content(responseContent)
-                .conversationId(request.getConversationId())
-                .success(true)
-                .processingType("DIRECT")
-                .processingTimeMs(processingTime)
-                .build();
-        });
     }
     
     /**

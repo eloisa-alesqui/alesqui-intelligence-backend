@@ -20,22 +20,10 @@ import java.time.Duration;
 public class ChatConfig {
   
   /**
-   * Timeout for query classification
-   */
-  @NotNull
-  private Duration classificationTimeout = Duration.ofSeconds(10);
-  
-  /**
    * General timeout for chat processing
    */
   @NotNull
   private Duration processingTimeout = Duration.ofSeconds(120);
-  
-  /**
-   * Timeout for operations without tools/APIs
-   */
-  @NotNull
-  private Duration processingDirectTimeout = Duration.ofSeconds(10);
   
   /**
    * Timeout for operations with tools/APIs
@@ -62,12 +50,6 @@ public class ChatConfig {
   private int maxConversationHistory = 20;
   
   /**
-   * Cache time for classification prompts
-   */
-  @NotNull
-  private Duration promptCacheTime = Duration.ofMinutes(5);
-  
-  /**
    * Specific configurations for the reasoning formatter
    */
   private ReasoningConfig reasoning = new ReasoningConfig();
@@ -78,7 +60,7 @@ public class ChatConfig {
   private CleanupConfig cleanup = new CleanupConfig();
   
   /**
-   * Configurations for stateless, utility AI calls (e.g., summarization, classification).
+   * Configurations for stateless, utility AI calls (e.g., summarization).
    */
   private UtilityAiConfig utilityAi = new UtilityAiConfig();
 
@@ -118,7 +100,7 @@ public class ChatConfig {
   public static class UtilityAiConfig {
       /**
        * Timeout for stateless AI operations that run in the background,
-       * like generating summaries or classifying text.
+       * like generating summaries
        */
       @NotNull
       private Duration timeout = Duration.ofSeconds(20);
