@@ -30,8 +30,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatWithReasoningResponse;
+import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.service.chat.tools.ApiActionTools;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.*;
@@ -204,7 +206,7 @@ public class SpringAIService {
 	 *         reasoning.
 	 */
 	public Mono<ChatWithReasoningResponse> chatWithTools(String systemPrompt, String userPrompt, String conversationId,
-			boolean includeReasoning) {
+			boolean includeReasoning, Sinks.Many<SseEvent> statusSink) {
 
 		// Input validation to ensure the user prompt is not empty.
 		validateInputs(userPrompt);
@@ -214,6 +216,9 @@ public class SpringAIService {
 			log.debug("Processing chat with tools for conversation: {}", conversationId);
 			long startTime = System.currentTimeMillis();
 			try {
+				// EMIT INITIAL STATUS
+				statusSink.tryEmitNext(SseEvent.status("Analyzing request and planning steps..."));
+				
 				// 1. Set up the tool-calling infrastructure for Spring AI.
 				ToolCallback[] toolCallbacks = ToolCallbacks.from(apiActionTools);
 				ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
@@ -237,7 +242,15 @@ public class SpringAIService {
 				ChatResponse chatResponse;
 				String reasoning = null;
 				ChartData capturedChartData = null;
-				ToolContext toolContext = new ToolContext(Map.of("conversationId", conversationId));
+				
+				Map<String, Object> contextMap = new HashMap<>();
+				contextMap.put("conversationId", conversationId);
+				contextMap.put("sseSink", statusSink);
+
+				ToolContext toolContext = new ToolContext(contextMap);
+				
+				// EMIT before first AI call
+	            statusSink.tryEmitNext(SseEvent.status("Thinking..."));
 
 				// 5. Make the first call to the AI model.
 				// We use the "all-in-one" prompt structure that has proven to be effective.
@@ -252,14 +265,18 @@ public class SpringAIService {
 
 				// 6. Start the main ReAct loop: continue as long as the AI requests tool calls.
 				while (chatResponse.hasToolCalls()) {
-					log.debug("AI requested tools, executing...");
+					log.debug("AI requested tools, executing");
 
 					// Execute the requested tools using the manager.
 					ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(currentPrompt,
 							chatResponse);
+										
 					// The result of the tool execution is a new message to add to the turn's history.
 					Message toolResponseMessage = toolExecutionResult.conversationHistory()
 							.get(toolExecutionResult.conversationHistory().size() - 1);
+					
+					// EMIT after tool execution
+					statusSink.tryEmitNext(SseEvent.status("Tool execution finished. Analyzing results..."));
 
 					// Check if a chart was created by a tool and capture its data.
 					if (toolResponseMessage instanceof ToolResponseMessage toolResponse) {
@@ -293,6 +310,8 @@ public class SpringAIService {
 				// 7. Finalize the turn and save to persistent memory.
 				// Now that the loop is finished, save the final assistant message to the long-term memory.
 				chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+				
+				statusSink.tryEmitNext(SseEvent.status("Formatting final answer..."));
 
 				// Generate the step-by-step reasoning narrative if requested.
 				if (includeReasoning) {
@@ -312,6 +331,7 @@ public class SpringAIService {
 						e);
 				meterRegistry.timer("ai.chat.with.tools.duration", "status", "error")
 						.record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
+				statusSink.tryEmitNext(SseEvent.error("An error occurred while processing tools."));
 				throw new RuntimeException("Failed to process chat request with tools", e);
 			}
 		}).subscribeOn(Schedulers.boundedElastic()) // Ensure the blocking code runs on a separate thread pool.

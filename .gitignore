@@ -35,9 +35,6 @@ release.properties
 *.iml
 *.iws
 
-# Application properties with sensitive data
-application.properties
-
 # OS files
 .DS_Store
 Thumbs.db

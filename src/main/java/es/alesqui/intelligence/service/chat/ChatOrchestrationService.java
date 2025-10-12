@@ -5,13 +5,17 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
 
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Schedulers;
 import es.alesqui.intelligence.config.ChatConfig;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
 import es.alesqui.intelligence.dto.chat.response.ClassificationResponse;
+import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.chat.DynamicApiQueryClassifierService.QueryType;
 import es.alesqui.intelligence.service.conversation.ChatMemoryService;
@@ -33,56 +37,118 @@ public class ChatOrchestrationService {
     private final SpringAIService springAIService;
     private final ChatConfig chatConfig;
     private final ConversationService conversationService;
-    private final ChatMemoryService chatMemoryService; // INYECTAR EL NUEVO SERVICIO
+    private final ChatMemoryService chatMemoryService;
     private final ChatMemory chatMemory;
 
     /**
-     * Main entry point for processing chat requests asynchronously.
-     * This method is fully non-blocking and returns a Mono that will emit the ChatResponse upon completion.
+     * Main entry point for processing chat requests using a streaming approach.
      *
-     * @param request The incoming chat request.
-     * @return A Mono<ChatResponse> representing the asynchronous operation.
+     * This method is fully non-blocking and orchestrates the entire chat workflow. It returns
+     * a Flux of Server-Sent Events (SseEvent) that the client can subscribe to. The stream
+     * is carefully constructed to first deliver all real-time status updates and then, only
+     * after those are complete, deliver the final response or a final error message.
+     *
+     * This is achieved by using Flux.concat to sequentially chain the status update stream
+     * with the final response stream, which robustly prevents race conditions where the final
+     * message could arrive before all status updates have been sent.
+     *
+     * @param request The incoming chat request, containing the user's query and conversation ID.
+     * @return A Flux of SseEvent that emits real-time status updates, followed by either a
+     * single final response event or a single error event before completing.
      */
-    public Mono<ChatResponse> processQuery(ChatRequest request) {
-        log.info("🚀 Processing chat request: '{}' for conversation: {}", request.getQuery(),
-                request.getConversationId());
+	public Flux<SseEvent> processQuery(ChatRequest request) {
+		log.info("🚀 Processing chat request: '{}' for conversation: {}", request.getQuery(),
+				request.getConversationId());
 
-        Instant startTime = Instant.now();
-        
-        Mono<Void> ensureMemoryLoaded = Mono.defer(() -> {
-            if (chatMemory.get(request.getConversationId()).isEmpty()) {
-                return chatMemoryService.loadHistoryIntoMemory(request.getConversationId());
-            } else {
-                log.debug("Memory for conversation '{}' is already populated.", request.getConversationId());
-                return Mono.empty();
-            }
-        });
+		return SecurityUtils.getCurrentUsername().switchIfEmpty(Mono.just("anonymous_fallback"))
+				.flatMapMany(username -> {
+					Sinks.Many<SseEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
 
-        Mono<ChatResponse> processingMono = Mono.just(request)
-                .doOnNext(this::validateRequest)
-                .flatMap(this::classifyQuery)
-                .flatMap(classification -> routeQuery(request, classification));
+					// 1. Prepare the Mono that performs all the background work and returns the
+					// final response.
+					Mono<ChatResponse> processingChain = processWithUsername(request, username, sink)
+							.subscribeOn(Schedulers.boundedElastic()) // Run the entire processing chain on a separate
+																		// scheduler.
+							.cache();
 
-        return ensureMemoryLoaded.then(processingMono)
-        		.timeout(chatConfig.getProcessingTimeout())
-        		.flatMap(response -> {
+					// 2. Define the stream for the status update events from the sink.
+					// A delay is applied to each element to ensure they are readable in the client
+					// UI.
+					Flux<SseEvent> statusUpdates = sink.asFlux().delayElements(Duration.ofMillis(700));
 
-            Mono<Void> saveSuccessOperation = SecurityUtils.getCurrentUsername()
-                    .flatMap(username -> conversationService.saveInteraction(request, response, username))
-                    .then(); 
+					// 3. Define the stream that will contain only the single, final response.
+					// This is created by mapping the result of the processing chain.
+					Flux<SseEvent> finalResponse = processingChain.map(SseEvent::finalResponse).flux();
 
-            return saveSuccessOperation
-                    .thenReturn(response)
-                    .doOnSuccess(r -> logSuccess(r, Duration.between(startTime, Instant.now()).toMillis()));
+					// 4. Merge the streams to run them in parallel.
+					// `merge` is the key to breaking the deadlock. It subscribes to `statusUpdates`
+					// and `finalResponse` at the same time, allowing the background process to
+					// start immediately while the status stream is already listening for events.
+					return Flux.merge(statusUpdates, finalResponse).onErrorResume(error -> {
+						// If an error occurs at ANY point in either the processing or status streams,
+						// gracefully resume with a single, user-friendly error event.
+						return Flux.just(SseEvent.error("An unexpected error occurred: " + error.getMessage()));
+					});
+				});
+	}
 
-        }).onErrorResume(error -> {
-            logError(request, error);
+    /**
+     * Orchestrates the core logic for processing a chat request for a specific user.
+     *
+     * This method is responsible for the entire reactive chain that generates a response.
+     * It ensures chat history is loaded, classifies the query, routes it to the appropriate
+     * handler (tools or direct), and saves the final interaction to the database.
+     *
+     * Crucially, it does not emit the final response to the sink itself. Instead, it returns
+     * a Mono containing the final ChatResponse and signals the completion of the status sink
+     * via the doOnTerminate operator. This allows the calling method to concatenate the
+     * status stream and the final response stream safely.
+     *
+     * @param request The incoming chat request from the user.
+     * @param username The username of the user making the request.
+     * @param sink The Sinks.Many instance used to emit real-time status updates (SseEvent).
+     * @return A Mono<ChatResponse> that will emit the final, generated chat response
+     * upon successful completion of all processing steps. It will emit an error
+     * if any part of the chain fails.
+     */
+    private Mono<ChatResponse> processWithUsername(ChatRequest request, String username, Sinks.Many<SseEvent> sink) {
+        return Mono.defer(() -> {
+            // First, ensure the chat history is loaded into memory if it's not already present.
+            Mono<Void> memoryLoader = chatMemory.get(request.getConversationId()).isEmpty()
+                    ? chatMemoryService.loadHistoryIntoMemory(request.getConversationId())
+                    : Mono.empty();
 
-            Mono<Void> saveFailureOperation = SecurityUtils.getCurrentUsername()
-                    .flatMap(username -> conversationService.saveFailedInteraction(request, error, username));
+            // This Mono represents the core logic for generating a response.
+            Mono<ChatResponse> responseGenerator = Mono.just(request)
+                    .doOnNext(this::validateRequest)
+                    .flatMap(this::classifyQuery)
+                    .flatMap(classification -> routeQuery(request, classification, sink));
 
-            return saveFailureOperation
-                    .then(Mono.just(handleGlobalError(error, request.getConversationId())));
+            return memoryLoader
+                .then(responseGenerator)
+                // WHEN THE MONO TERMINATES (on success or error), COMPLETE THE STATUS SINK.
+                // This is a critical step to signal that the status update stream is finished,
+                // allowing Flux.concat in the calling method to proceed to the final response stream.
+                .doOnTerminate(() -> {
+                    log.debug("Processing finished, completing status sink.");
+                    sink.tryEmitComplete();
+                })
+                .flatMap(response -> {
+                    // SUCCESS PATH: Log the success, save the interaction, and then pass the response through.
+                    logSuccess(response, response.getProcessingTimeMs());
+                    return conversationService.saveInteraction(request, response, username)
+                        .thenReturn(response); // Important: We return the original response to continue the chain.
+                })
+                .doOnError(error -> {
+                    // Log the error as soon as it occurs in the chain.
+                    logError(request, error);
+                })
+                .onErrorResume(error -> {
+                    // ERROR PATH: Save the failed interaction to the database, and then propagate the
+                    // error so the main stream handler can convert it into a final error event.
+                    return conversationService.saveFailedInteraction(request, error, username)
+                        .then(Mono.error(error));
+                });
         });
     }
 
@@ -118,16 +184,20 @@ public class ChatOrchestrationService {
     }
 
     /**
-     * Routes the query based on the classification result, returning a Mono<ChatResponse>.
+     * Routes the query to the appropriate handler based on the classification result.
      *
-     * @param request        The original chat request.
+     * This method acts as a switch, directing the user's request to either the
+     * tool-based ReAct flow if API interaction is needed, or to the direct
+     * conversational flow for simple questions.
+     *
+     * @param request The original chat request.
      * @param classification The result of the classification step.
-     * @return A Mono that will resolve to the final ChatResponse.
+     * @return A Mono that will resolve to the final ChatResponse from the selected flow.
      */
-    private Mono<ChatResponse> routeQuery(ChatRequest request, ClassificationResponse classification) {
+    private Mono<ChatResponse> routeQuery(ChatRequest request, ClassificationResponse classification, Sinks.Many<SseEvent> sink) {
         if (classification.shouldUseReAct()) {
             log.info("✅ Query requires API calls - Starting ReAct flow");
-            return executeToolBasedResponse(request);
+            return executeToolBasedResponse(request, sink);
         } else {
             log.info("💬 Query doesn't require API calls - Using direct response");
             return generateDirectResponse(request);
@@ -136,64 +206,65 @@ public class ChatOrchestrationService {
     
     /**
      * Executes the tool-based (ReAct) chat flow.
+     *
      * This involves calling an AI model that can use a predefined set of tools
-     * (like API calls or chart generation) to answer the user's query.
+     * to answer the user's query. It passes a sink to the underlying AI service
+     * to emit real-time status updates.
      *
      * @param request The original chat request.
      * @return A Mono emitting the final ChatResponse after tool execution.
      */
-    private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request) {
+    private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request, Sinks.Many<SseEvent> sink) {
         Instant startTime = Instant.now();
+        // NOTE: The system prompt has been updated to reflect the new tool capabilities.
         String systemPrompt = """
             You are a friendly, conversational, and highly efficient AI assistant named 'Alesqui'. Your purpose is to help users by interacting with the available APIs.
-
+            
             **Your Personality and Communication Style:**
-            1.  **Friendly Tone:** Start the conversation with a suitable greeting (e.g., "Hi there!", "Of course!", "Understood, let me check...") and maintain a helpful and approachable tone. If the user greets you (e.g., "Good evening"), respond to the greeting.
-            2.  **Clarity:** After using tools, don't just display the raw data. Summarize the result in a clear and friendly manner.
-            3.  **Polite Closing:** End your response in a helpful way, for instance, by asking if there's anything else you can help with.
+            1.  **Friendly Tone:** Start with a suitable greeting and maintain a helpful, approachable tone.
+            2.  **Clarity:** Summarize results in a clear and friendly manner.
+            3.  **Polite Closing:** End your response in a helpful way.
             4.  **Language:** Always communicate in the user's language.
-
+            
+            ---
+            
+            **Your Guiding Principles for Using Tools (Your Internal Logic):**
+            1.  **Think Step-by-Step:** Break down the request into a logical sequence of steps.
+            2.  **Use Tools Intelligently:** Always use `list_apis` first to discover available APIs and endpoints before trying to call them.
+            3.  **Be Resourceful:** If a tool call fails, analyze the error, correct your approach, and try again.
+            4.  **Stay Focused:** Only use the provided tools. Do not invent tools or parameters.
+            
             ---
 
-            **Your Guiding Principles for Using Tools (Your Internal Logic):**
-            1.  **Think Step-by-Step:** Before acting, break down the user's request into a logical sequence of steps.
-            2.  **Use Tools Intelligently:** Always use the `list_apis` tool first to discover the available operations before attempting to call an API. Do not guess endpoint names or parameters.
-            3.  **Be Resourceful:** If a tool call fails, analyze the error, correct your approach, and try again. If it persists, inform the user clearly.
-            4.  **Stay Focused:** Only use the provided tools. Do not invent tools.
-            5.  **Do Not Assume Tool Capabilities:** Only use tool parameters as documented. For example, `process_data` can only group by keys that exist in the data. It cannot automatically calculate quarters from a date. If you need to transform data, you must do it in a separate step or with a different tool.
-
             **Tool Reference:**
-            - `list_apis()`: Lists all configured and available APIs in the system.
+            - `list_apis()`: Lists all available APIs.
             - `list_endpoints(apiName)`: Lists all operations for a specific API.
             - `call_api(apiName, operationId, parameters)`: Executes a specific API operation.
-            - `process_data(jsonData, operation, filterExpression, groupByKey)`: Analyzes JSON data. Operations: 'COUNT', 'FILTER', 'GROUP_BY_COUNT'.
-            - `create_excel_file(jsonData, filename)`: Generates an Excel file from a JSON array.
-            - `create_chart(chartType, jsonData, labelKey, dataKey, datasetLabel)`: Generates a chart configuration object.
-
-            **Workflow for Data Analysis:**
-		    1.  First, obtain the raw data by calling the most relevant API using `call_api`.
-		    2.  Then, use `process_data` on the result of `call_api` to answer the user's specific question (e.g., counting items, filtering by a specific field).
+            - `process_data(jsonData, operation, filterExpression, groupByKey, valueKey, dateKey, datePart)`: Analyzes JSON data.
+                - `operation`: 'COUNT', 'FILTER', 'GROUP_BY_COUNT', 'GROUP_BY_DATE_PART_COUNT', 'SUM', 'AVERAGE'.
+                - `filterExpression`: Supports nested keys (e.g., "shippingAddress.city=='Madrid'") and operators (==, !=, >, <, >=, <=).
+                - `groupByKey`: The key to group by. Also used for SUM/AVERAGE.
+                - `valueKey`: The key containing the number to be summed or averaged.
+            - `create_excel_file(jsonData, filename)`: Generates an Excel file.
+            - `create_chart(chartType, jsonData, labelKey, dataKey, datasetLabel)`: Generates a chart configuration.
             
-            **Workflow for Creating Files (Excel):**
-            1.  Obtain the necessary data by calling an API using `call_api`.
-            2.  Ensure the result is a valid JSON array.
-            3.  Pass the JSON data and a descriptive filename to `create_excel_file`.
-
+            **Workflow for Data Analysis:**
+            1.  First, obtain the raw data using `call_api`.
+            2.  Then, use `process_data` on the result of `call_api` to answer the user's specific question (e.g., counting, filtering, averaging). You can filter and group in a single step.
+            
             **Workflow for Creating Charts:**
             1.  Obtain the necessary data using `call_api`.
-            2.  Analyze the JSON result to identify the correct keys for labels (`labelKey`) and data values (`dataKey`).
-            3.  Call `create_chart` with all required parameters.
-            4.  **CRITICAL:** After the `create_chart` tool is called successfully, your task is complete. Your final answer must be a brief summary of the data and a confirmation that the chart is ready.
+            2.  If needed, transform the data using `process_data` to group it correctly.
+            3.  Call `create_chart` with the transformed data.
+            4.  **CRITICAL:** After `create_chart` is called, your task is complete. Your final answer must be a brief summary.
             5.  **DO NOT** include the raw JSON chart configuration in your final response.
             """;
             
-        return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning())
+        return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning(), sink)
             .timeout(chatConfig.getToolsTimeout())
             .map(chatWithReasoningResponse -> {
-
-            	String responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
+                String responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
                 String formattedReasoning = null;
-
                 if (request.isIncludeReasoning()) {
                     formattedReasoning = chatWithReasoningResponse.getFormattedReasoning();
                 }
@@ -213,7 +284,7 @@ public class ChatOrchestrationService {
                         .build();
             });
     }
-    
+
     /**
      * Generates a direct conversational response without using any external tools.
      * This is used when the query classifier determines that no API calls are necessary.
@@ -222,10 +293,11 @@ public class ChatOrchestrationService {
      * @return A Mono emitting the direct ChatResponse from the AI model.
      */
     private Mono<ChatResponse> generateDirectResponse(ChatRequest request) {
+
         Instant startTime = Instant.now();
         
         return springAIService.chat(
-        	"You are a friendly and conversational AI assistant named 'Alesqui'. Your goal is to provide clear and accurate answers in a helpful tone.",
+            "You are a friendly and conversational AI assistant named 'Alesqui'. Your goal is to provide clear and accurate answers in a helpful tone.",
             request.getQuery(),
             request.getConversationId()
         ).timeout(chatConfig.getProcessingDirectTimeout())
@@ -239,22 +311,6 @@ public class ChatOrchestrationService {
                 .processingTimeMs(processingTime)
                 .build();
         });
-    }
-
-    /**
-     * Creates a standardized error response when an unrecoverable exception occurs.
-     * This method is the final step in the .onErrorResume() chain.
-     *
-     * @param error The throwable that was caught.
-     * @param conversationId The ID of the conversation that failed.
-     * @return A user-friendly ChatResponse object detailing the error.
-     */
-    private ChatResponse handleGlobalError(Throwable error, String conversationId) {
-        log.error("❌ Global error in chat processing: {}", error.getMessage(), error);
-        
-        return ChatResponse.error(
-            "An unexpected error occurred during processing: " + error.getMessage(), conversationId)
-            .addMetadata("errorType", error.getClass().getSimpleName());
     }
     
     /**

@@ -1,17 +1,19 @@
 package es.alesqui.intelligence.controller;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import es.alesqui.intelligence.config.ChatConfig;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
+import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.service.chat.ChatOrchestrationService;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import java.time.Duration;
+
 import java.util.UUID;
 
 @RestController
@@ -21,56 +23,68 @@ import java.util.UUID;
 public class ChatController {
 
     private final ChatOrchestrationService chatOrchestrationService;
-    private final ChatConfig chatConfig;
+    private final ObjectMapper objectMapper; // Injected to serialize events to JSON
 
     /**
-     * Processes incoming chat messages and returns AI-generated responses asynchronously.
-     * This endpoint is fully non-blocking, leveraging the reactive service layer.
+     * Processes a chat request and streams responses using Server-Sent Events (SSE).
+     * This endpoint is ideal for clients that want to receive real-time status updates.
      *
-     * @param request The chat request containing the user query and conversation context.
-     * @return A reactive Mono containing the ResponseEntity with the AI-generated chat response or error details.
+     * @param request The chat request containing the user query.
+     * @return A Flux of ServerSentEvent, where each event's data is a JSON string
+     * representing an SseEvent object.
      */
-    @PostMapping("/message")
-    public Mono<ResponseEntity<ChatResponse>> sendMessage(@RequestBody ChatRequest request) {
-        
-        // Ensure a conversation ID exists for the request.
-        if (request.getConversationId() == null || request.getConversationId().isBlank()) {
-            request.setConversationId(generateConversationId());
-        }
-        final String conversationId = request.getConversationId();
-
-        log.info("📨 Received chat request for conversation: {}", conversationId);
-        
-        // Determine the timeout to use: either from the request or the central configuration.
-        Duration requestTimeout = request.getTimeoutSeconds() > 0 
-            ? Duration.ofSeconds(request.getTimeoutSeconds()) 
-            : chatConfig.getProcessingTimeout(); // Use the Duration object directly
+    @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> streamMessage(@RequestBody ChatRequest request) {
+        ensureConversationId(request);
+        log.info("📨 Received chat stream request for conversation: {}", request.getConversationId());
 
         return chatOrchestrationService.processQuery(request)
-        	// Apply the determined timeout
-            .timeout(requestTimeout)
-            // Map the successful ChatResponse to a 200 OK ResponseEntity.
-            .map(ResponseEntity::ok)
-            // Handle any errors that occur during the reactive stream processing.
-            .onErrorResume(throwable -> handleError(throwable, conversationId));
+                .map(this::toSse); // Convert our SseEvent DTOs to SSE format
     }
 
     /**
-     * Handles errors from the reactive pipeline and converts them into a standard error response.
+     * Processes a chat request and returns a single, complete response.
+     * This endpoint is for clients that do not support streaming and wait for the full answer.
      *
-     * @param throwable      The error that occurred.
-     * @param conversationId The ID of the conversation that failed.
-     * @return A Mono containing a 500 INTERNAL_SERVER_ERROR ResponseEntity.
+     * @param request The chat request containing the user query.
+     * @return A Mono containing the final ChatResponse.
      */
-    private Mono<ResponseEntity<ChatResponse>> handleError(Throwable throwable, String conversationId) {
-        log.error("❌ Error processing message for conversation {}: {}", conversationId, throwable.getMessage(), throwable);
-        
-        ChatResponse errorResponse = ChatResponse.error(
-            "An error occurred while processing your request: " + throwable.getMessage(), 
-            conversationId
-        );
-        
-        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse));
+    @PostMapping("/message")
+    public Mono<ChatResponse> sendMessage(@RequestBody ChatRequest request) {
+        ensureConversationId(request);
+        log.info("📨 Received chat request for conversation: {}", request.getConversationId());
+
+        // Adapt the streaming service to a single response Mono
+        return chatOrchestrationService.processQuery(request)
+                // We only care about the FINAL_RESPONSE event
+                .filter(event -> event.getType() == SseEvent.EventType.FINAL_RESPONSE)
+                // Extract the ChatResponse payload from the event
+                .map(event -> (ChatResponse) event.getPayload())
+                // Take the first (and only) final response event
+                .next();
+    }
+
+    /**
+     * Converts an SseEvent DTO into a ServerSentEvent wrapper with a JSON string payload.
+     *
+     * @param event The SseEvent to convert.
+     * @return A ServerSentEvent ready to be sent to the client.
+     */
+    @SneakyThrows // Automatically handles Jackson's checked exceptions
+    private ServerSentEvent<String> toSse(SseEvent event) {
+        String jsonPayload = objectMapper.writeValueAsString(event);
+        return ServerSentEvent.builder(jsonPayload).build();
+    }
+    
+    /**
+     * Ensures that the ChatRequest has a valid conversation ID, generating one if not present.
+     *
+     * @param request The incoming chat request.
+     */
+    private void ensureConversationId(ChatRequest request) {
+        if (request.getConversationId() == null || request.getConversationId().isBlank()) {
+            request.setConversationId(generateConversationId());
+        }
     }
 
     /**

@@ -46,7 +46,6 @@ public class ConversationService {
      * It emits the saved ConversationRecord.
      */
     public Mono<ConversationRecord> saveInteraction(ChatRequest request, ChatResponse response, String username) {
-        // Lógica simplificada: ya no necesitamos el flatMap
         ConversationRecord record = ConversationRecord.builder()
                 .conversationId(request.getConversationId())
                 .username(username)
