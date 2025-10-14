@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -17,6 +18,9 @@ import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.conversation.ChatMemoryService;
 import es.alesqui.intelligence.service.conversation.ConversationService;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -43,20 +47,20 @@ public class ChatOrchestrationService {
             ConversationService conversationService,
             ChatMemoryService chatMemoryService,
             ChatMemory chatMemory,
-            @Value("classpath:prompts/chat-system.txt") String systemPromptTemplate
+            @Value("classpath:prompts/chat-system.txt") Resource promptResource
     ) {
         this.springAIService = springAIService;
         this.chatConfig = chatConfig;
         this.conversationService = conversationService;
         this.chatMemoryService = chatMemoryService;
         this.chatMemory = chatMemory;
-        this.systemPromptTemplate = systemPromptTemplate; 
 
-        if (this.systemPromptTemplate == null || this.systemPromptTemplate.isBlank()) {
-             log.error("❌ System prompt from 'classpath:prompts/chat-system.txt' is empty or could not be loaded.");
-             throw new IllegalStateException("System prompt could not be loaded!");
-        } else {
-            log.info("✅ System prompt loaded successfully.");
+        try {
+            this.systemPromptTemplate = promptResource.getContentAsString(StandardCharsets.UTF_8);
+            log.info("✅ Chat Orchestration system prompt loaded successfully.");
+        } catch (IOException e) {
+            log.error("❌ Failed to load chat system prompt resource.", e);
+            throw new IllegalStateException("Failed to load chat system prompt", e);
         }
     }
 

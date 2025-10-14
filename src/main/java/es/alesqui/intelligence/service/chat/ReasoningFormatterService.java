@@ -1,14 +1,17 @@
 package es.alesqui.intelligence.service.chat;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
@@ -32,57 +35,32 @@ import reactor.core.scheduler.Scheduler;
  * patterns to ensure non-blocking execution.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ReasoningFormatterService {
     
     private final ChatClient chatClient;
     private final Scheduler boundedElasticScheduler;
     private final MeterRegistry meterRegistry;
+    private final String systemPromptTemplate;
     
-    /**
-     * System prompt template that defines the AI assistant's behavior and formatting rules.
-     * This prompt ensures consistent output formatting across all reasoning operations.
-     */
-    private static final String SYSTEM_PROMPT = """
-            You are a formatting assistant specialized in presenting API reasoning in a clear, professional manner.
-            
-            The user's question for this turn is: "%s"
-            
-            Your task is to:
-            1. Clean up the provided reasoning data
-            2. Format it with proper markdown and emojis with adequate spacing between sections
-            3. Extract key information from tool results
-            4. Provide a clear conclusion that answers the user's question
-            5. Make it visually appealing and easy to read
-                        
-            Show your reasoning following this exact format:
-                    
-            '🎯 **User question:**
-              "[Exact quote of the user's question]"
-            📋 **Action plan:**
-              [Brief description of the steps you will follow]
-            ---
-            🔧 **Step [number] - [Brief description of the step]**
-            
-            🛠️ **Tool used:**
-              [tool_name]([parameters])
-            
-            📊 **Result obtained:**
-              [Clear and concise summary of the most relevant result]
-            ---
-            [Repeat the above pattern for each additional step, always including the separator line and blank lines]
-            ---
-            ✨ **Conclusion:**
-              [Final summary of what was achieved and how it answers the original question]'
-
-                        
-            Remember to:
-            - Use horizontal separators (---) between steps
-            - Maintain consistent indentation
-            - Keep emojis aligned properly
-            
-            """;
+    public ReasoningFormatterService(
+            ChatClient chatClient,
+            Scheduler boundedElasticScheduler,
+            MeterRegistry meterRegistry,
+            @Value("classpath:prompts/reasoning-formatter-system.txt") Resource promptResource
+    ) {
+        this.chatClient = chatClient;
+        this.boundedElasticScheduler = boundedElasticScheduler;
+        this.meterRegistry = meterRegistry;
+        
+        try {
+            this.systemPromptTemplate = promptResource.getContentAsString(StandardCharsets.UTF_8);
+            log.info("✅ Reasoning Formatter system prompt loaded successfully.");
+        } catch (IOException e) {
+            log.error("❌ Failed to load reasoning formatter prompt resource.", e);
+            throw new IllegalStateException("Failed to load reasoning formatter prompt", e);
+        }
+    }
     
     /**
      * Default timeout duration for AI processing operations.
@@ -125,7 +103,7 @@ public class ReasoningFormatterService {
             log.debug("Starting reasoning formatting process");
             long startTime = System.currentTimeMillis();
             
-            String finalSystemPrompt = String.format(SYSTEM_PROMPT, userQuestion);
+            String finalSystemPrompt = systemPromptTemplate.replace("{userQuestion}", userQuestion);
             
             try {
                 String response = chatClient.prompt()
