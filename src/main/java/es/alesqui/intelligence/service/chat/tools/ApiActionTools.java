@@ -14,7 +14,6 @@ import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedTag;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import es.alesqui.intelligence.service.api.ApiExecutionService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Sinks;
 
@@ -53,7 +52,6 @@ import java.util.stream.Stream;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ApiActionTools {
 
     private final UnifiedApiService unifiedApiService;
@@ -61,6 +59,16 @@ public class ApiActionTools {
     private final ObjectMapper objectMapper;
     
     private final Path tempFileDir = Paths.get(System.getProperty("java.io.tmpdir"), "alesqui-intelligence-files");
+    
+    public ApiActionTools(
+            UnifiedApiService unifiedApiService,
+            ApiExecutionService apiExecutionService,
+            ObjectMapper objectMapper
+    ) {
+        this.unifiedApiService = unifiedApiService;
+        this.apiExecutionService = apiExecutionService;
+        this.objectMapper = objectMapper;
+    }
 
     /**
      * Lists all available APIs. This is the first step for the AI to understand
@@ -289,27 +297,36 @@ public class ApiActionTools {
     @Tool(name = "process_data", description = "Analyzes a JSON array to perform operations like filtering, counting, grouping, or aggregating.")
     public String processData(
         @ToolParam(description = "A JSON string of the data array.") String jsonData,
-        @ToolParam(description = "Operation to perform: 'COUNT', 'FILTER', 'GROUP_BY_COUNT', etc.") String operation,
-        @ToolParam(description = "Optional: Filter expression, e.g., \"price>100\".") String filterExpression,
+        @ToolParam(description = "Operation to perform: 'COUNT', 'FILTER', 'GROUP_BY_COUNT', 'GROUP_BY_DATE_PART_COUNT', 'SUM', 'AVERAGE'.") String operation,
+        @ToolParam(description = "Optional: JSONPath filter expression inside `[?()]`. Use `==` for equality, `&&` for AND. For text matching, use the regex operator `=~`. Examples: `@.price > 100`, `@.address.city == 'Valencia'`, `for 'starts with': @.address.zipCode =~ '^46.*'`, `for 'contains': @.name =~ '.*John.*'i` (case-insensitive)") String filterExpression,
         @ToolParam(description = "Optional: Key to group by.") String groupByKey,
         @ToolParam(description = "Optional: Key of values to aggregate (for SUM, AVERAGE).") String valueKey,
         @ToolParam(description = "Optional: Key of date values for date grouping.") String dateKey,
         @ToolParam(description = "Optional: Date part to group by: 'QUARTER', 'MONTH', 'YEAR'.") String datePart,
         ToolContext toolContext
     ) {
-    	Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
-    	if (sink != null) sink.tryEmitNext(SseEvent.status("Processing data with operation: '" + operation + "'..."));
-        log.info("Executing tool: processData with operation '{}'", operation);
-        
+        Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
+        if (sink != null) sink.tryEmitNext(SseEvent.status("Processing data with operation: '" + operation + "'..."));
+        log.info("Executing tool: processData with operation '{}' and filter '{}'", operation, filterExpression);
+
         try {
-            List<Map<String, Object>> data = objectMapper.readValue(jsonData, new TypeReference<>() {});
+        	List<Map<String, Object>> data = objectMapper.readValue(jsonData, new TypeReference<>() {});
             if (data.isEmpty()) return "{\"result\": \"The provided JSON data is empty.\"}";
 
             Stream<Map<String, Object>> filteredStream = data.stream();
             if (StringUtils.isNotBlank(filterExpression)) {
-                filteredStream = filteredStream.filter(createFilterPredicate(filterExpression));
+                String[] filters = filterExpression.split("&&");
+                Predicate<Map<String, Object>> combinedPredicate = Stream.of(filters)
+                    .map(this::createFilterPredicate)
+                    .reduce(Predicate::and)
+                    .orElse(x -> true); // Si no hay filtros, no se filtra nada
+                filteredStream = filteredStream.filter(combinedPredicate);
             }
             List<Map<String, Object>> filteredData = filteredStream.collect(Collectors.toList());
+
+            if (filteredData.isEmpty()) {
+                 return "{\"result\": \"No data remains after applying the filter.\"}";
+            }
 
             Object result;
             switch (operation.toUpperCase()) {
@@ -320,21 +337,21 @@ public class ApiActionTools {
                     result = filteredData;
                     break;
                 case "GROUP_BY_COUNT":
-                    if (StringUtils.isBlank(groupByKey)) throw new IllegalArgumentException("'groupByKey' is required.");
-                    result = filteredData.stream().collect(Collectors.groupingBy(row -> String.valueOf(row.getOrDefault(groupByKey, "N/A")), Collectors.counting()));
+                    if (StringUtils.isBlank(groupByKey)) throw new IllegalArgumentException("'groupByKey' is required for GROUP_BY_COUNT.");
+                    result = filteredData.stream().collect(Collectors.groupingBy(row -> String.valueOf(getNestedValue(row, groupByKey)), Collectors.counting()));
                     break;
                 case "GROUP_BY_DATE_PART_COUNT":
-                    if (StringUtils.isBlank(dateKey) || StringUtils.isBlank(datePart)) throw new IllegalArgumentException("'dateKey' and 'datePart' are required.");
-                    result = filteredData.stream().collect(Collectors.groupingBy(row -> extractDatePart(String.valueOf(row.get(dateKey)), datePart), Collectors.counting()));
+                    if (StringUtils.isBlank(dateKey) || StringUtils.isBlank(datePart)) throw new IllegalArgumentException("'dateKey' and 'datePart' are required for GROUP_BY_DATE_PART_COUNT.");
+                    result = filteredData.stream().collect(Collectors.groupingBy(row -> extractDatePart(String.valueOf(getNestedValue(row, dateKey)), datePart), Collectors.counting()));
                     break;
                 case "SUM":
                 case "AVERAGE":
-                    if (StringUtils.isBlank(groupByKey) || StringUtils.isBlank(valueKey)) throw new IllegalArgumentException("'groupByKey' and 'valueKey' are required.");
-                    java.util.function.ToDoubleFunction<Map<String, Object>> mapper = row -> Double.parseDouble(String.valueOf(row.getOrDefault(valueKey, "0")));
+                    if (StringUtils.isBlank(groupByKey) || StringUtils.isBlank(valueKey)) throw new IllegalArgumentException("'groupByKey' and 'valueKey' are required for aggregation.");
+                    java.util.function.ToDoubleFunction<Map<String, Object>> mapper = row -> Double.parseDouble(String.valueOf(getNestedValue(row, valueKey)));
                     if (operation.equalsIgnoreCase("SUM")) {
-                        result = filteredData.stream().collect(Collectors.groupingBy(row -> String.valueOf(row.getOrDefault(groupByKey, "N/A")), Collectors.summingDouble(mapper)));
+                        result = filteredData.stream().collect(Collectors.groupingBy(row -> String.valueOf(getNestedValue(row, groupByKey)), Collectors.summingDouble(mapper)));
                     } else { // AVERAGE
-                        result = filteredData.stream().collect(Collectors.groupingBy(row -> String.valueOf(row.getOrDefault(groupByKey, "N/A")), Collectors.averagingDouble(mapper)));
+                        result = filteredData.stream().collect(Collectors.groupingBy(row -> String.valueOf(getNestedValue(row, groupByKey)), Collectors.averagingDouble(mapper)));
                     }
                     break;
                 default:
@@ -346,11 +363,83 @@ public class ApiActionTools {
         } catch (Exception e) {
             log.error("Error executing processData tool: {}", e.getMessage(), e);
             if (sink != null) sink.tryEmitNext(SseEvent.status("Data processing failed."));
-            return "{\"error\": \"Failed to process data. Reason: " + e.getMessage() + "\"}";
+            return "{\"error\": \"Failed to process data. Reason: " + e.getMessage() + ". Please check your filter syntax or data structure.\"}";
         }
     }
     
     // --- PRIVATE HELPER METHODS ---
+    
+    /**
+     * Creates a Predicate from a filter expression. Handles numeric, string, and regex comparisons robustly.
+     *
+     * @param filterExpression The filter string to parse (e.g., "@.price > 100", "@.name =~ '^A.*'").
+     * @return A Predicate for filtering a stream of maps.
+     */
+    private Predicate<Map<String, Object>> createFilterPredicate(String filterExpression) {
+        String cleanExpression = filterExpression.replace("@.", "").trim();
+        
+        Pattern pattern = Pattern.compile("(.+?)(==|!=|>=|<=|>|<|=~)(.+)");
+        Matcher matcher = pattern.matcher(cleanExpression);
+
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Invalid filter format. Expected: key[operator]value. Got: " + cleanExpression);
+        }
+
+        String key = matcher.group(1).trim();
+        String operator = matcher.group(2).trim();
+        String valueStr = matcher.group(3).trim();
+
+        if ((valueStr.startsWith("'") && valueStr.endsWith("'")) || (valueStr.startsWith("\"") && valueStr.endsWith("\""))) {
+            valueStr = valueStr.substring(1, valueStr.length() - 1);
+        }
+        final String finalValue = valueStr;
+
+        if ("=~".equals(operator)) {
+            Pattern regexPattern;
+            if (finalValue.endsWith("i")) { 
+                String actualPattern = finalValue.substring(0, finalValue.length() - 1);
+                regexPattern = Pattern.compile(actualPattern, Pattern.CASE_INSENSITIVE);
+            } else {
+                regexPattern = Pattern.compile(finalValue);
+            }
+            return map -> {
+                String mapValueStr = String.valueOf(getNestedValue(map, key));
+                return regexPattern.matcher(mapValueStr).find();
+            };
+        }
+
+        return map -> {
+            Object mapValue = getNestedValue(map, key);
+            if (mapValue == null) return false;
+
+            String mapValueStr = String.valueOf(mapValue);
+
+            try { 
+                double mapValueNum = Double.parseDouble(mapValueStr);
+                double filterValueNum = Double.parseDouble(finalValue);
+                switch (operator) {
+                    case "==": return mapValueNum == filterValueNum;
+                    case "!=": return mapValueNum != filterValueNum;
+                    case ">":  return mapValueNum > filterValueNum;
+                    case "<":  return mapValueNum < filterValueNum;
+                    case ">=": return mapValueNum >= filterValueNum;
+                    case "<=": return mapValueNum <= filterValueNum;
+                }
+            } catch (NumberFormatException e) {
+                int comparison = mapValueStr.compareToIgnoreCase(finalValue);
+                switch (operator) {
+                    case "==": return comparison == 0;
+                    case "!=": return comparison != 0;
+                    case ">":  return comparison > 0;
+                    case "<":  return comparison < 0;
+                    case ">=": return comparison >= 0;
+                    case "<=": return comparison <= 0;
+                }
+            }
+            return false;
+        };
+    }
+
     
     /**
      * Safely extracts the SseEvent Sink from the ToolContext.
@@ -458,60 +547,6 @@ public class ApiActionTools {
                 .build();
     }
     
-    /**
-     * Creates a Predicate from a filter expression like "key==value" or "key>value".
-     * It automatically handles numeric and string comparisons.
-     *
-     * @param filterExpression The filter string to parse. Supported operators are ==, !=, >, <, >=, <=.
-     * @return A Predicate suitable for filtering a stream of maps.
-     */
-    private Predicate<Map<String, Object>> createFilterPredicate(String filterExpression) {
-        Pattern pattern = Pattern.compile("(.+?)(==|!=|>=|<=|>|<)(.+)");
-        Matcher matcher = pattern.matcher(filterExpression.trim());
-
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException("Invalid filter format. Expected: key[operator]value.");
-        }
-
-        String key = matcher.group(1).trim();
-        String operator = matcher.group(2).trim();
-        String valueStr = matcher.group(3).trim();
-
-        if ((valueStr.startsWith("'") && valueStr.endsWith("'")) || (valueStr.startsWith("\"") && valueStr.endsWith("\""))) {
-            valueStr = valueStr.substring(1, valueStr.length() - 1);
-        }
-        final String finalValue = valueStr;
-
-        return map -> {
-            Object mapValue = getNestedValue(map, key);
-            if (mapValue == null) return false;
-
-            try {
-                double mapValueNum = Double.parseDouble(mapValue.toString());
-                double filterValueNum = Double.parseDouble(finalValue);
-                switch (operator) {
-                    case "==": return mapValueNum == filterValueNum;
-                    case "!=": return mapValueNum != filterValueNum;
-                    case ">":  return mapValueNum > filterValueNum;
-                    case "<":  return mapValueNum < filterValueNum;
-                    case ">=": return mapValueNum >= filterValueNum;
-                    case "<=": return mapValueNum <= filterValueNum;
-                }
-            } catch (NumberFormatException e) {
-                int comparison = mapValue.toString().compareToIgnoreCase(finalValue);
-                switch (operator) {
-                    case "==": return comparison == 0;
-                    case "!=": return comparison != 0;
-                    case ">":  return comparison > 0;
-                    case "<":  return comparison < 0;
-                    case ">=": return comparison >= 0;
-                    case "<=": return comparison <= 0;
-                }
-            }
-            return false;
-        };
-    }
-
     /**
      * Retrieves a value from a nested map structure using a dot-notation key.
      *
