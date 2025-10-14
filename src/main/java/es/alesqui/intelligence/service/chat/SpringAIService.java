@@ -338,7 +338,7 @@ public class SpringAIService {
 		  .flatMap(response -> {
 			  // 8. Asynchronously format the reasoning text (if it exists).
 			  if (response.getFormattedReasoning() != null) {
-				  return reasoningFormatterService.formatReasoning(response.getFormattedReasoning())
+				  return reasoningFormatterService.formatReasoning(userPrompt, response.getFormattedReasoning())
 						  .map(formattedReasoning -> {
 							  response.setFormattedReasoning(formattedReasoning);
 							  return response;

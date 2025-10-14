@@ -1,11 +1,10 @@
 package es.alesqui.intelligence.service.chat;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -18,7 +17,6 @@ import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.conversation.ChatMemoryService;
 import es.alesqui.intelligence.service.conversation.ConversationService;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -30,7 +28,6 @@ import java.time.format.DateTimeFormatter;
  */
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class ChatOrchestrationService {
 
     private final SpringAIService springAIService;
@@ -38,6 +35,30 @@ public class ChatOrchestrationService {
     private final ConversationService conversationService;
     private final ChatMemoryService chatMemoryService;
     private final ChatMemory chatMemory;
+    private final String systemPromptTemplate;
+    
+    public ChatOrchestrationService(
+            SpringAIService springAIService,
+            ChatConfig chatConfig,
+            ConversationService conversationService,
+            ChatMemoryService chatMemoryService,
+            ChatMemory chatMemory,
+            @Value("classpath:prompts/chat-system.txt") String systemPromptTemplate
+    ) {
+        this.springAIService = springAIService;
+        this.chatConfig = chatConfig;
+        this.conversationService = conversationService;
+        this.chatMemoryService = chatMemoryService;
+        this.chatMemory = chatMemory;
+        this.systemPromptTemplate = systemPromptTemplate; 
+
+        if (this.systemPromptTemplate == null || this.systemPromptTemplate.isBlank()) {
+             log.error("❌ System prompt from 'classpath:prompts/chat-system.txt' is empty or could not be loaded.");
+             throw new IllegalStateException("System prompt could not be loaded!");
+        } else {
+            log.info("✅ System prompt loaded successfully.");
+        }
+    }
 
     /**
      * Main entry point for processing chat requests using a streaming approach.
@@ -177,54 +198,8 @@ public class ChatOrchestrationService {
         // Get the current date and format it.
         String currentDate = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE); // e.g., "2025-10-12"
         
-        String systemPromptTemplate = """
-            You are a friendly, conversational, and highly efficient AI assistant named 'Alesqui'. Your purpose is to help users by interacting with the available APIs.
-            
-            **CRITICAL CONTEXT:**
-        	- **Today's Date is: %s**. You MUST use this date to resolve any relative date queries like 'today', 'yesterday', 'last quarter', etc.
-           
-            **Your Personality and Communication Style:**
-            1.  **Friendly Tone:** Start with a suitable greeting and maintain a helpful, approachable tone.
-            2.  **Clarity:** Summarize results in a clear and friendly manner.
-            3.  **Polite Closing:** End your response in a helpful way.
-            4.  **Language:** Always communicate in the user's language.
-            
-            ---
-            
-            **Your Guiding Principles for Using Tools (Your Internal Logic):**
-            1.  **Think Step-by-Step:** Break down the request into a logical sequence of steps.
-            2.  **Use Tools Intelligently:** Always use `list_apis` first to discover available APIs and endpoints before trying to call them.
-            3.  **Be Resourceful:** If a tool call fails, analyze the error, correct your approach, and try again.
-            4.  **Stay Focused:** Only use the provided tools. Do not invent tools or parameters.
-            
-            ---
-
-            **Tool Reference:**
-            - `list_apis()`: Lists all available APIs.
-            - `list_endpoints(apiName)`: Lists all operations for a specific API.
-            - `call_api(apiName, operationId, parameters)`: Executes a specific API operation.
-            - `process_data(jsonData, operation, filterExpression, groupByKey, valueKey, dateKey, datePart)`: Analyzes JSON data.
-                - `operation`: 'COUNT', 'FILTER', 'GROUP_BY_COUNT', 'GROUP_BY_DATE_PART_COUNT', 'SUM', 'AVERAGE'.
-                - `filterExpression`: Supports nested keys (e.g., "shippingAddress.city=='Madrid'") and operators (==, !=, >, <, >=, <=).
-                - `groupByKey`: The key to group by. Also used for SUM/AVERAGE.
-                - `valueKey`: The key containing the number to be summed or averaged.
-            - `create_excel_file(jsonData, filename)`: Generates an Excel file.
-            - `create_chart(chartType, jsonData, labelKey, dataKey, datasetLabel)`: Generates a chart configuration.
-            
-            **Workflow for Data Analysis:**
-            1.  First, obtain the raw data using `call_api`.
-            2.  Then, use `process_data` on the result of `call_api` to answer the user's specific question (e.g., counting, filtering, averaging). You can filter and group in a single step.
-            
-            **Workflow for Creating Charts:**
-            1.  Obtain the necessary data using `call_api`.
-            2.  If needed, transform the data using `process_data` to group it correctly.
-            3.  Call `create_chart` with the transformed data.
-            4.  **CRITICAL:** After `create_chart` is called, your task is complete. Your final answer must be a brief summary.
-            5.  **DO NOT** include the raw JSON chart configuration in your final response.
-            """;
-        
-        String systemPrompt = String.format(systemPromptTemplate, currentDate);
-            
+        String systemPrompt = systemPromptTemplate.replace("{currentDate}", currentDate);
+     
         return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning(), sink)
             .timeout(chatConfig.getToolsTimeout())
             .map(chatWithReasoningResponse -> {

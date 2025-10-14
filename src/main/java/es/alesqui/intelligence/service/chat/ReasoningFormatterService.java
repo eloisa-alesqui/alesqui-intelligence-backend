@@ -47,6 +47,8 @@ public class ReasoningFormatterService {
     private static final String SYSTEM_PROMPT = """
             You are a formatting assistant specialized in presenting API reasoning in a clear, professional manner.
             
+            The user's question for this turn is: "%s"
+            
             Your task is to:
             1. Clean up the provided reasoning data
             2. Format it with proper markdown and emojis with adequate spacing between sections
@@ -107,6 +109,7 @@ public class ReasoningFormatterService {
      * - Tool usage documentation
      * - Clear conclusions and results
      * 
+     * @param userQuestion User question
      * @param rawReasoningData The unstructured reasoning data to be formatted.
      *                        Must not be null or empty.
      * @return A Mono containing the formatted reasoning as a string, or an error message
@@ -115,16 +118,18 @@ public class ReasoningFormatterService {
      * 
      * @since 1.0
      */
-    public Mono<String> formatReasoning(String rawReasoningData) {
-        validateInput(rawReasoningData);
+    public Mono<String> formatReasoning(String userQuestion, String rawReasoningData) {
+        validateInput(userQuestion, rawReasoningData);
         
         return Mono.defer(() -> Mono.fromCallable(() -> {
             log.debug("Starting reasoning formatting process");
             long startTime = System.currentTimeMillis();
             
+            String finalSystemPrompt = String.format(SYSTEM_PROMPT, userQuestion);
+            
             try {
                 String response = chatClient.prompt()
-                    .system(SYSTEM_PROMPT)
+                    .system(finalSystemPrompt)
                     .user(rawReasoningData)
                     .call()
                     .content();
@@ -149,12 +154,13 @@ public class ReasoningFormatterService {
     /**
      * Validates the input parameters to ensure they meet the required criteria.
      * 
+     * @param userQuestion User question
      * @param rawReasoningData The input data to validate
      * @throws IllegalArgumentException if the input is null or empty
      */
-    private void validateInput(String rawReasoningData) {
-        if (!StringUtils.hasText(rawReasoningData)) {
-            throw new IllegalArgumentException("Raw reasoning data cannot be null or empty");
+    private void validateInput(String userQuestion, String rawReasoningData) {
+        if (!StringUtils.hasText(userQuestion) || !StringUtils.hasText(rawReasoningData)) {
+            throw new IllegalArgumentException("User question and raw reasoning data cannot be null or empty");
         }
     }
     
