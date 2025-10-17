@@ -8,9 +8,13 @@ import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.dto.chat.response.StructuredApiError;
 import es.alesqui.intelligence.exception.ApiExecutionException;
+import es.alesqui.intelligence.exception.ParameterValidationException;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedMediaType;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedRequestBody;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedSchema;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedTag;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import es.alesqui.intelligence.service.api.ApiExecutionService;
@@ -103,6 +107,74 @@ public class ApiActionTools {
             return "Error while trying to list APIs: " + e.getMessage();
         }
     }
+    
+    /**
+     * Inspects the detailed schema of a requestBody for a given API endpoint.
+     * This tool now correctly navigates the content map to find the schema.
+     *
+     * @param apiName The name of the API (e.g., "ecommerce").
+     * @param operationId The operation ID of the endpoint (e.g., "createUser").
+     * @return A Markdown string detailing the requestBody's schema, or an error message.
+     */
+    @Tool(name = "inspect_request_body_schema", description = "Inspects the detailed schema (including required fields and types) for an API endpoint's requestBody. Use this when you need to know what JSON data to send for a POST/PUT operation.")
+    public String inspectRequestBodySchema(
+            @ToolParam(description = "The exact name of the API.") String apiName,
+            @ToolParam(description = "The operation ID of the endpoint.") String operationId,
+            ToolContext toolContext) {
+        
+        Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
+        if (sink != null) sink.tryEmitNext(SseEvent.status("Inspecting request body schema for API: " + apiName + ", Operation: " + operationId + "..."));
+        log.info("Executing tool: inspect_request_body_schema - API: '{}', Operation: '{}'", apiName, operationId);
+
+        try {
+            UnifiedApiDocument api = unifiedApiService.findByName(apiName.trim()).block(Duration.ofSeconds(10));
+            if (api == null) throw new IllegalArgumentException("No API found with name: " + apiName);
+
+            UnifiedEndpoint endpoint = api.getEndpoints().stream()
+                    .filter(e -> operationId.trim().equals(e.getOperationId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("No endpoint found with operation ID '" + operationId + "' in API '" + apiName + "'"));
+
+            UnifiedRequestBody requestBody = endpoint.getRequestBody();
+            if (requestBody == null || requestBody.getContent() == null || requestBody.getContent().isEmpty()) {
+                return "The endpoint '" + operationId + "' in API '" + apiName + "' does not define a request body.";
+            }
+
+            UnifiedMediaType mediaType = requestBody.getContent().get("application/json");
+
+            if (mediaType == null) {
+                mediaType = requestBody.getContent().values().stream().findFirst().orElse(null);
+            }
+
+            if (mediaType == null || mediaType.getSchema() == null) {
+                return "The endpoint '" + operationId + "' does not define a usable schema for its request body.";
+            }
+
+            UnifiedSchema schemaToRender = mediaType.getSchema();
+
+            if (schemaToRender.getRef() != null && !schemaToRender.getRef().isBlank()) {
+                String schemaName = schemaToRender.getRef().substring(schemaToRender.getRef().lastIndexOf('/') + 1);
+                
+                Map<String, UnifiedSchema> allApiSchemas = api.getSchemas();
+                if (allApiSchemas != null && allApiSchemas.containsKey(schemaName)) {
+                    log.debug("Resolving schema reference for '{}'", schemaName);
+                    schemaToRender = allApiSchemas.get(schemaName);
+                    
+                    if (schemaToRender.getTitle() == null) {
+                        schemaToRender.setTitle(schemaName);
+                    }
+                } else {
+                    throw new IllegalStateException("Schema reference '" + schemaName + "' could not be found in the API definition.");
+                }
+            }
+
+            return "```markdown\n" + schemaToRender.toMarkdown() + "\n```";
+
+        } catch (Exception e) {
+            log.error("Error inspecting request body schema for API: '{}', Operation: '{}'", apiName, operationId, e);
+            return "Error inspecting schema: " + e.getMessage();
+        }
+    }
 
     /**
      * Gets the endpoints (operations) for a specific API.
@@ -166,8 +238,9 @@ public class ApiActionTools {
                 .orElseThrow(() -> new ApiExecutionException("No endpoint found with operation ID '" + operationId + "' in API '" + apiName + "'"));
             
             Map<String, Object> paramMap = parseParameters(parameters);
-            String conversationId = (String) toolContext.getContext().get("conversationId");
+            validateParametersAgainstSpec(endpoint, paramMap);
             
+            String conversationId = (String) toolContext.getContext().get("conversationId");
             ApiCallRequest apiCallRequest = buildApiCallRequest(api, endpoint, paramMap, conversationId);
             
             if (sink != null) sink.tryEmitNext(SseEvent.status("Executing API call..."));
@@ -466,6 +539,40 @@ public class ApiActionTools {
         if (StringUtils.isBlank(operationId)) throw new IllegalArgumentException("Operation ID is required.");
     }
     
+    /**
+     * Validates the parameters provided by the LLM against the endpoint's specification.
+     * Throws a ParameterValidationException if an invalid enum value is found.
+     *
+     * @param endpoint The API endpoint specification.
+     * @param llmParameters The parameters provided by the LLM.
+     */
+    private void validateParametersAgainstSpec(UnifiedEndpoint endpoint, Map<String, Object> llmParameters) {
+        if (endpoint.getParameters() == null || llmParameters == null || llmParameters.isEmpty()) {
+            return; 
+        }
+
+        for (UnifiedParameter paramSpec : endpoint.getParameters()) {
+        	if(paramSpec.getSchema() != null) {
+            List<Object> validEnumValues = paramSpec.getSchema().getEnumValues();
+	            if (validEnumValues != null && !validEnumValues.isEmpty() && llmParameters.containsKey(paramSpec.getName())) {
+	                
+	                Object providedValueObj = llmParameters.get(paramSpec.getName());
+	                if (providedValueObj == null) continue;
+	                
+	                String providedValue = String.valueOf(providedValueObj);
+	
+	                boolean isValid = validEnumValues.stream()
+	                    .anyMatch(enumVal -> String.valueOf(enumVal).equalsIgnoreCase(providedValue));
+	                
+	                if (!isValid) {
+	                    log.warn("Parameter validation failed for '{}'. Provided: '{}', Allowed: {}", paramSpec.getName(), providedValue, validEnumValues);
+	                    throw new ParameterValidationException(paramSpec.getName(), providedValue, validEnumValues);
+	                }
+	            }
+        	}
+        }
+    }
+    
     private String formatParametersForLLM(List<UnifiedParameter> parameters) {
         if (parameters == null || parameters.isEmpty()) return "  - Parameters: None";
         return "  - Parameters:\n" + parameters.stream()
@@ -483,7 +590,17 @@ public class ApiActionTools {
 
         int statusCode = 500;
 
-        if (e instanceof IllegalArgumentException) {
+        if (e instanceof ParameterValidationException pve) {
+            errorBuilder.errorType("INVALID_PARAMETERS");
+            errorBuilder.message("Invalid value '" + pve.getInvalidValue() + "' for parameter '" + pve.getParameterName() + "'.");
+            
+            details.put("failingParameter", pve.getParameterName());
+            details.put("providedValue", pve.getInvalidValue());
+            details.put("allowedValues", pve.getValidValues()); 
+            
+            statusCode = 400; 
+
+        } else if (e instanceof IllegalArgumentException) {
             errorBuilder.errorType("INVALID_PARAMETERS");
             statusCode = 400; 
         } else if (e instanceof ApiExecutionException) {

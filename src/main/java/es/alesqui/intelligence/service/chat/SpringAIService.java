@@ -24,6 +24,9 @@ import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,6 +59,17 @@ public class SpringAIService {
 	private final ChatMemory chatMemory;
 	private final MeterRegistry meterRegistry;
 	private final ObjectMapper objectMapper;
+	
+	private static final String ROLE_IT_INSTRUCTION = """
+			IMPORTANT: You are speaking to a technical user (IT role). Be precise and use technical terminology.
+			You can refer to APIs by name, endpoints by their operationId, and parameters by their technical type (e.g., string, integer).
+			""";
+
+	private static final String ROLE_BUSINESS_INSTRUCTION = """
+			IMPORTANT: You are speaking to a business user. Use simple, non-technical language.
+			Avoid jargon like 'API', 'endpoint', 'parameter', or data types.
+			Translate technical concepts into business actions (e.g., instead of 'parameter name', say 'you need to provide a name').
+			""";
 
 	/**
 	 * Validates input parameters to ensure they are not null or empty.
@@ -205,148 +219,159 @@ public class SpringAIService {
 	 * @return A reactive Mono containing the AI model's ChatResponse and optional
 	 *         reasoning.
 	 */
-	public Mono<ChatWithReasoningResponse> chatWithTools(String systemPrompt, String userPrompt, String conversationId,
-			boolean includeReasoning, Sinks.Many<SseEvent> statusSink) {
+	public Mono<ChatWithReasoningResponse> chatWithTools(String baseSystemPrompt, String userPrompt,
+			String conversationId, boolean includeReasoning, Sinks.Many<SseEvent> statusSink) {
 
 		// Input validation to ensure the user prompt is not empty.
 		validateInputs(userPrompt);
 
-		// Offload the entire blocking sequence to a dedicated scheduler to avoid blocking main threads.
-		return Mono.fromCallable(() -> {
-			log.debug("Processing chat with tools for conversation: {}", conversationId);
-			long startTime = System.currentTimeMillis();
-			try {
-				// EMIT INITIAL STATUS
-				statusSink.tryEmitNext(SseEvent.status("Analyzing request and planning steps..."));
-				
-				// 1. Set up the tool-calling infrastructure for Spring AI.
-				ToolCallback[] toolCallbacks = ToolCallbacks.from(apiActionTools);
-				ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
-				ChatOptions chatOptions = ToolCallingChatOptions.builder().toolCallbacks(toolCallbacks)
-						// Disable automatic tool execution by Spring AI; we will manage the loop manually.
-						.internalToolExecutionEnabled(false).build();
+		// Offload the entire blocking sequence to a dedicated scheduler to avoid
+		// blocking main threads.
+		return ReactiveSecurityContextHolder.getContext()
+				.defaultIfEmpty(new org.springframework.security.core.context.SecurityContextImpl())
+				.flatMap(securityContext -> {
+					String systemPrompt = buildPromptWithRole(baseSystemPrompt, securityContext.getAuthentication());
+					return Mono.fromCallable(() -> {
+						log.debug("Processing chat with tools for conversation: {}", conversationId);
+						long startTime = System.currentTimeMillis();
+						try {
+							// EMIT INITIAL STATUS
+							statusSink.tryEmitNext(SseEvent.status("Analyzing request and planning steps...")); 
 
-				// 2. Correctly manage conversation history.
-				// First, add the current user message to the persistent memory.
-				chatMemory.add(conversationId, new UserMessage(userPrompt));
-				// Then, retrieve the full, updated history for this turn.
-				List<Message> history = chatMemory.get(conversationId);
+							// 1. Set up the tool-calling infrastructure for Spring AI.
+							ToolCallback[] toolCallbacks = ToolCallbacks.from(apiActionTools);
+							ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
+							ChatOptions chatOptions = ToolCallingChatOptions.builder().toolCallbacks(toolCallbacks)
+									// Disable automatic tool execution by Spring AI; we will manage the loop
+									// manually.
+									.internalToolExecutionEnabled(false).build();
 
-				// 3. Construct the prompt for the current turn.
-				// This temporary list will be sent to the AI. It includes the system prompt and the full history.
-				List<Message> turnHistory = new ArrayList<>();
-				turnHistory.add(new SystemMessage(systemPrompt)); // Add system instructions at the beginning.
-				turnHistory.addAll(history); // Add the complete conversation history.
+							// 2. Correctly manage conversation history.
+							// First, add the current user message to the persistent memory.
+							chatMemory.add(conversationId, new UserMessage(userPrompt));
+							// Then, retrieve the full, updated history for this turn.
+							List<Message> history = chatMemory.get(conversationId);
 
-				// 4. Initialize variables for the ReAct loop
-				ChatResponse chatResponse;
-				String reasoning = null;
-				ChartData capturedChartData = null;
-				
-				Map<String, Object> contextMap = new HashMap<>();
-				contextMap.put("conversationId", conversationId);
-				contextMap.put("sseSink", statusSink);
+							// 3. Construct the prompt for the current turn.
+							// This temporary list will be sent to the AI. It includes the system prompt and
+							// the full history.
+							List<Message> turnHistory = new ArrayList<>();
+							turnHistory.add(new SystemMessage(systemPrompt)); // Add system instructions at the
+																				// beginning.
+							turnHistory.addAll(history); // Add the complete conversation history.
 
-				ToolContext toolContext = new ToolContext(contextMap);
-				
-				// EMIT before first AI call
-	            statusSink.tryEmitNext(SseEvent.status("Thinking..."));
+							// 4. Initialize variables for the ReAct loop
+							ChatResponse chatResponse;
+							String reasoning = null;
+							ChartData capturedChartData = null;
 
-				// 5. Make the first call to the AI model.
-				// We use the "all-in-one" prompt structure that has proven to be effective.
-				Prompt currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
-				chatResponse = chatClient.prompt(currentPrompt)
-						.toolContext(toolContext.getContext())
-						.call()
-						.chatResponse();
+							Map<String, Object> contextMap = new HashMap<>();
+							contextMap.put("conversationId", conversationId);
+							contextMap.put("sseSink", statusSink);
 
-				// Add the assistant's first response to the turn's history (not the persistent memory yet).
-				turnHistory.add(chatResponse.getResult().getOutput());
+							ToolContext toolContext = new ToolContext(contextMap);
 
-				// 6. Start the main ReAct loop: continue as long as the AI requests tool calls.
-				while (chatResponse.hasToolCalls()) {
-					log.debug("AI requested tools, executing");
+							// EMIT before first AI call
+							statusSink.tryEmitNext(SseEvent.status("Thinking..."));
 
-					// Execute the requested tools using the manager.
-					ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(currentPrompt,
-							chatResponse);
-										
-					// The result of the tool execution is a new message to add to the turn's history.
-					Message toolResponseMessage = toolExecutionResult.conversationHistory()
-							.get(toolExecutionResult.conversationHistory().size() - 1);
-					
-					// EMIT after tool execution
-					statusSink.tryEmitNext(SseEvent.status("Tool execution finished. Analyzing results..."));
+							// 5. Make the first call to the AI model.
+							// We use the "all-in-one" prompt structure that has proven to be effective.
+							Prompt currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
+							chatResponse = chatClient.prompt(currentPrompt).toolContext(toolContext.getContext()).call()
+									.chatResponse();
 
-					// Check if a chart was created by a tool and capture its data.
-					if (toolResponseMessage instanceof ToolResponseMessage toolResponse) {
-						for (ToolResponseMessage.ToolResponse detailedResponse : toolResponse.getResponses()) {
-							if ("create_chart".equals(detailedResponse.name())) {
-								try {
-									capturedChartData = objectMapper.readValue(detailedResponse.responseData(),
-											ChartData.class);
-									log.info("📊 ChartData object captured successfully!");
-									break; // Stop searching once chart data is found
-								} catch (Exception e) {
-									log.error("Error deserializing ChartData from tool response JSON: {}",
-											detailedResponse.responseData(), e);
+							// Add the assistant's first response to the turn's history (not the persistent
+							// memory yet).
+							turnHistory.add(chatResponse.getResult().getOutput());
+
+							// 6. Start the main ReAct loop: continue as long as the AI requests tool calls.
+							while (chatResponse.hasToolCalls()) {
+								log.debug("AI requested tools, executing");
+
+								// Execute the requested tools using the manager.
+								ToolExecutionResult toolExecutionResult = toolCallingManager
+										.executeToolCalls(currentPrompt, chatResponse);
+
+								// The result of the tool execution is a new message to add to the turn's
+								// history.
+								Message toolResponseMessage = toolExecutionResult.conversationHistory()
+										.get(toolExecutionResult.conversationHistory().size() - 1);
+
+								// EMIT after tool execution
+								statusSink
+										.tryEmitNext(SseEvent.status("Tool execution finished. Analyzing results..."));
+
+								// Check if a chart was created by a tool and capture its data.
+								if (toolResponseMessage instanceof ToolResponseMessage toolResponse) {
+									for (ToolResponseMessage.ToolResponse detailedResponse : toolResponse
+											.getResponses()) {
+										if ("create_chart".equals(detailedResponse.name())) {
+											try {
+												capturedChartData = objectMapper
+														.readValue(detailedResponse.responseData(), ChartData.class);
+												log.info("📊 ChartData object captured successfully!");
+												break; // Stop searching once chart data is found
+											} catch (Exception e) {
+												log.error("Error deserializing ChartData from tool response JSON: {}",
+														detailedResponse.responseData(), e);
+											}
+										}
+									}
 								}
+								turnHistory.add(toolResponseMessage);
+
+								// Prepare and make the next call to the AI with the updated turn history
+								// (including tool results).
+								currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
+								chatResponse = chatClient.prompt(currentPrompt).toolContext(toolContext.getContext())
+										.call().chatResponse();
+
+								// Add the next assistant response to the turn history.
+								turnHistory.add(chatResponse.getResult().getOutput());
 							}
+
+							// 7. Finalize the turn and save to persistent memory.
+							// Now that the loop is finished, save the final assistant message to the
+							// long-term memory.
+							chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+
+							statusSink.tryEmitNext(SseEvent.status("Formatting final answer..."));
+
+							// Generate the step-by-step reasoning narrative if requested.
+							if (includeReasoning) {
+								reasoning = generateReasoningNarrative(turnHistory);
+							}
+
+							long totalTime = System.currentTimeMillis() - startTime;
+							log.info("Successfully processed chat with tools for conversation: {} in {}ms",
+									conversationId, totalTime);
+							meterRegistry.timer("ai.chat.with.tools.duration", "status", "success").record(totalTime,
+									TimeUnit.MILLISECONDS);
+
+							return new ChatWithReasoningResponse(chatResponse, reasoning, capturedChartData);
+
+						} catch (Exception e) {
+							log.error("Error processing chat with tools for conversation {}: {}", conversationId,
+									e.getMessage(), e);
+							meterRegistry.timer("ai.chat.with.tools.duration", "status", "error")
+									.record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
+							statusSink.tryEmitNext(SseEvent.error("An error occurred while processing tools."));
+							throw new RuntimeException("Failed to process chat request with tools", e);
 						}
+					}).subscribeOn(Schedulers.boundedElastic()); // Ensure the blocking code runs on a separate thread
+																	// pool.
+				}).flatMap(response -> {
+					// 8. Asynchronously format the reasoning text (if it exists).
+					if (response.getFormattedReasoning() != null) {
+						return reasoningFormatterService.formatReasoning(userPrompt, response.getFormattedReasoning())
+								.map(formattedReasoning -> {
+									response.setFormattedReasoning(formattedReasoning);
+									return response;
+								});
+					} else {
+						return Mono.just(response);
 					}
-					turnHistory.add(toolResponseMessage);
-
-					// Prepare and make the next call to the AI with the updated turn history (including tool results).
-					currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
-					chatResponse = chatClient.prompt(currentPrompt)
-							.toolContext(toolContext.getContext())
-							.call()
-							.chatResponse();
-					
-					// Add the next assistant response to the turn history.
-					turnHistory.add(chatResponse.getResult().getOutput());
-				}
-
-				// 7. Finalize the turn and save to persistent memory.
-				// Now that the loop is finished, save the final assistant message to the long-term memory.
-				chatMemory.add(conversationId, chatResponse.getResult().getOutput());
-				
-				statusSink.tryEmitNext(SseEvent.status("Formatting final answer..."));
-
-				// Generate the step-by-step reasoning narrative if requested.
-				if (includeReasoning) {
-					reasoning = generateReasoningNarrative(turnHistory);
-				}
-
-				long totalTime = System.currentTimeMillis() - startTime;
-				log.info("Successfully processed chat with tools for conversation: {} in {}ms", conversationId,
-						totalTime);
-				meterRegistry.timer("ai.chat.with.tools.duration", "status", "success").record(totalTime,
-						TimeUnit.MILLISECONDS);
-				
-				return new ChatWithReasoningResponse(chatResponse, reasoning, capturedChartData);
-
-			} catch (Exception e) {
-				log.error("Error processing chat with tools for conversation {}: {}", conversationId, e.getMessage(),
-						e);
-				meterRegistry.timer("ai.chat.with.tools.duration", "status", "error")
-						.record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
-				statusSink.tryEmitNext(SseEvent.error("An error occurred while processing tools."));
-				throw new RuntimeException("Failed to process chat request with tools", e);
-			}
-		}).subscribeOn(Schedulers.boundedElastic()) // Ensure the blocking code runs on a separate thread pool.
-		  .flatMap(response -> {
-			  // 8. Asynchronously format the reasoning text (if it exists).
-			  if (response.getFormattedReasoning() != null) {
-				  return reasoningFormatterService.formatReasoning(userPrompt, response.getFormattedReasoning())
-						  .map(formattedReasoning -> {
-							  response.setFormattedReasoning(formattedReasoning);
-							  return response;
-						  });
-			  } else {
-				  return Mono.just(response);
-			  }
-		});
+				});
 	}
 
 	/**
@@ -412,4 +437,31 @@ public class SpringAIService {
 		}
 		return narrative.toString();
 	}
+	
+	/**
+     * Construye el prompt del sistema final añadiendo instrucciones de personalidad
+     * basadas en los roles del usuario.
+     */
+    private String buildPromptWithRole(String basePrompt, Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return basePrompt;
+        }
+
+        Set<String> roles = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .collect(Collectors.toSet());
+
+        String personaInstruction = "";
+        if (roles.contains("ROLE_IT")) {
+            personaInstruction = ROLE_IT_INSTRUCTION;
+        } else if (roles.contains("ROLE_BUSINESS")) {
+            personaInstruction = ROLE_BUSINESS_INSTRUCTION;
+        }
+
+        if (personaInstruction.isEmpty()) {
+            return basePrompt;
+        }
+
+        return personaInstruction + "\n\n---\n\n" + basePrompt;
+    }
 }

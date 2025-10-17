@@ -84,7 +84,9 @@ public class ChatClientConfig {
     @Bean
     @Primary
     public ChatClient chatClient(OpenAiChatModel chatModel) {
-        ChatClient client = ChatClient.builder(chatModel).build();
+        ChatClient client = ChatClient
+        		.builder(chatModel)
+        		.build();
         log.info("✅ Basic ChatClient created");
         return client;
     }

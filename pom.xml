@@ -15,7 +15,7 @@
 	<description>Enterprise Self-Hosted AI API Assistant</description>
 	<properties>
 		<java.version>17</java.version>
-		<spring-ai.version>1.0.0</spring-ai.version>
+		<spring-ai.version>1.0.3</spring-ai.version>
 		<maven.compiler.source>17</maven.compiler.source>
 		<maven.compiler.target>17</maven.compiler.target>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

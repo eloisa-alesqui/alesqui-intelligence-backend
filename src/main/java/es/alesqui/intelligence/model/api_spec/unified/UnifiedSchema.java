@@ -10,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Represents a unified schema model based on an OpenAPI schema.
@@ -221,4 +222,66 @@ public class UnifiedSchema {
      * A map of custom extensions for the schema.
      */
     private Map<String, Object> extensions;
+    
+    /**
+     * Generates a Markdown representation of the schema for the LLM.
+     * @param indentLevel Current indentation level for pretty printing nested schemas.
+     * @return Markdown string of the schema.
+     */
+    public String toMarkdown(int indentLevel) {
+        StringBuilder sb = new StringBuilder();
+        String indent = "  ".repeat(indentLevel);
+        String nextIndent = "  ".repeat(indentLevel + 1);
+
+        if (title != null && indentLevel == 0) { 
+            sb.append(indent).append("## Schema: ").append(title).append("\n");
+        }
+        if (description != null) {
+            sb.append(indent).append("Description: ").append(description).append("\n");
+        }
+        if (type != null) {
+            sb.append(indent).append("Type: ").append(type);
+            if (format != null) sb.append(" (").append(format).append(")");
+            sb.append("\n");
+        }
+        if (defaultValue != null) {
+            sb.append(indent).append("Default: ").append(defaultValue).append("\n");
+        }
+        if (example != null) {
+            sb.append(indent).append("Example: ").append(example).append("\n");
+        }
+        if (pattern != null) {
+            sb.append(indent).append("Pattern: `").append(pattern).append("`\n");
+        }
+        if (enumValues != null && !enumValues.isEmpty()) {
+            sb.append(indent).append("Allowed values: ")
+              .append(enumValues.stream().map(String::valueOf).collect(Collectors.joining(", ")))
+              .append("\n");
+        }
+        
+        if (properties != null && !properties.isEmpty()) {
+            sb.append(indent).append("Properties:\n");
+            properties.forEach((propName, propSchema) -> {
+                sb.append(nextIndent).append("- `").append(propName).append("`");
+                if (propSchema.getType() != null) sb.append(": ").append(propSchema.getType());
+                if (propSchema.getFormat() != null) sb.append(" (").append(propSchema.getFormat()).append(")");
+                if (Boolean.TRUE.equals(propSchema.getRequired())) sb.append(" **(REQUIRED)**");
+                sb.append("\n");
+                // Recursively call for nested properties, increasing indent
+                sb.append(propSchema.toMarkdown(indentLevel + 2)); 
+            });
+        }
+        
+        if (items != null) { // For array types
+            sb.append(indent).append("Items:\n");
+            sb.append(items.toMarkdown(indentLevel + 1));
+        }
+
+        return sb.toString();
+    }
+
+    // Overload for convenience
+    public String toMarkdown() {
+        return toMarkdown(0);
+    }
 }

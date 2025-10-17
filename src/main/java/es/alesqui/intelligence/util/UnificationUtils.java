@@ -157,6 +157,11 @@ public class UnificationUtils {
        if (swaggerSchema.getExtensions() != null) {
            builder.extensions(swaggerSchema.getExtensions());
        }
+       
+       // Handle enumerations
+       if (swaggerSchema.getEnum() != null && !swaggerSchema.getEnum().isEmpty()) {
+           builder.enumValues(new ArrayList<>(swaggerSchema.getEnum()));
+       }
 
        return builder.build();
    }
