@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Asynchronous orchestration service implementing the ReAct pattern for chat-based API interactions.
@@ -111,7 +112,7 @@ public class ChatOrchestrationService {
 					return Flux.merge(statusUpdates, finalResponse).onErrorResume(error -> {
 						// If an error occurs at ANY point in either the processing or status streams,
 						// gracefully resume with a single, user-friendly error event.
-						return Flux.just(SseEvent.error("An unexpected error occurred: " + error.getMessage()));
+						return Flux.just(SseEvent.error(error.getMessage()));
 					});
 				});
 	}
@@ -206,6 +207,16 @@ public class ChatOrchestrationService {
      
         return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning(), sink)
             .timeout(chatConfig.getToolsTimeout())
+            .onErrorResume(TimeoutException.class, error -> {
+                log.warn("⏱️ Request timeout after {} ms for query: '{}'", 
+                    chatConfig.getToolsTimeout().toMillis(), request.getQuery());
+                
+                // Return a user-friendly error response
+                return Mono.error(new RuntimeException(
+                    "The query is taking longer than expected. " +
+                    "Please try rephrasing your question or make it more specific."
+                ));
+            })
             .map(chatWithReasoningResponse -> {
                 String responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
                 String formattedReasoning = null;

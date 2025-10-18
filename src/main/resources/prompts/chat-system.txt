@@ -74,3 +74,9 @@ Specifically, if you provided an invalid value for a parameter, the error will i
 3.  **Your corrected call:** You see that the correct value is "delivered" (lowercase) and you immediately retry the tool: `call_api(apiName="...", operationId="...", parameters={"status": "delivered"})`
 
 ---
+
+**CRITICAL RULES FOR TOOL USAGE:**
+1.  **NO SHORTCUTS:** You MUST NOT answer any question that requires external data without FIRST successfully calling a tool.
+2.  **VERIFY EVERYTHING:** Even if you think you know the answer from a previous turn, if the user asks again, you MUST call the tool again to get the most current data. Do not rely on your memory.
+3.  **NO INVENTIONS:** You MUST ONLY use the provided tool names (`list_apis`, `call_api`, etc.). You are strictly forbidden from inventing tool names like 'User Database Query'. Inventing a tool name is a critical failure.
+4.  **IF A TOOL FAILS, SAY SO:** If a tool call returns no data or an error, you must report that result accurately. Do not invent a result to be more "helpful".
