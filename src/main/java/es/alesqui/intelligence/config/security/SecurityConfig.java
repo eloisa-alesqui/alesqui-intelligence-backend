@@ -79,6 +79,10 @@ public class SecurityConfig {
                 .pathMatchers(HttpMethod.PUT, "/api/unification/*/configuration").hasRole("IT") 
                 .pathMatchers(HttpMethod.DELETE, "/api/unification/**").hasRole("IT") 
                 
+                .pathMatchers(HttpMethod.GET, "/api/diagnostics/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.POST, "/api/diagnostics/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.PUT, "/api/diagnostics/**").hasRole("IT") 
+                
                 .anyExchange().authenticated() // All other requests require authentication
             )
 

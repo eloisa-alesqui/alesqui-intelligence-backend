@@ -12,30 +12,23 @@ public enum ConversationStatus {
     SUCCESS,
 
     /**
-     * The agent failed to get a valid response from a required external API.
-     * This status is specific to failures during the tool execution step.
-     */
-    ERROR_API_CALL,
-
-    /**
-     * A general processing error occurred that was not related to a specific API call.
-     * Examples include timeouts, classification failures, or internal exceptions.
+     * A general processing error occurred.
+     * Examples include timeouts, internal exceptions, ...
      */
     ERROR_PROCESSING,
 
     /**
-     * The user has flagged this response as incorrect or problematic.
-     * This status acts as a trigger for the IT team to review.
+     * The user has flagged this specific record for review.
      */
     REPORTED_BY_USER,
-
+    
     /**
-     * An IT team member is actively investigating the reported issue.
+     * An IT team member is actively investigating this report.
      */
-    IN_REVIEW,
-
+    UNDER_REVIEW,
+    
     /**
-     * The reported issue has been investigated and resolved.
+     * The investigation is complete and the issue is closed.
      */
     RESOLVED
 }

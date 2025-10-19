@@ -161,7 +161,10 @@ public class ChatOrchestrationService {
                     // SUCCESS PATH: Log the success, save the interaction, and then pass the response through.
                     logSuccess(response, response.getProcessingTimeMs());
                     return conversationService.saveInteraction(request, response, username)
-                        .thenReturn(response); // Important: We return the original response to continue the chain.
+                            .map(savedRecord -> {
+                                response.setRecordId(savedRecord.getId());
+                                return response; 
+                            });
                 })
                 .doOnError(error -> {
                     // Log the error as soon as it occurs in the chain.

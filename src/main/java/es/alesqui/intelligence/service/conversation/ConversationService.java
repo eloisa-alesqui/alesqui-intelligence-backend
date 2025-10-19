@@ -4,15 +4,24 @@ import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
 import es.alesqui.intelligence.dto.conversation.ConversationDetailDTO;
 import es.alesqui.intelligence.dto.conversation.ConversationSummaryDTO;
+import es.alesqui.intelligence.dto.conversation.DiagnosticTicketDTO;
 import es.alesqui.intelligence.model.conversation.ConversationRecord;
 import es.alesqui.intelligence.model.conversation.ConversationStatus;
 import es.alesqui.intelligence.repository.ConversationRecordRepository;
+import es.alesqui.intelligence.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuple2;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -74,10 +83,9 @@ public class ConversationService {
      * @return A {@link Mono} that completes once the save operation is finished.
      */
     public Mono<Void> saveFailedInteraction(ChatRequest request, Throwable error, String username) {
-        // Lógica simplificada: ya no necesitamos el flatMap
         ConversationRecord record = ConversationRecord.builder()
                 .conversationId(request.getConversationId())
-                .username(username) // Usamos el username que nos pasan
+                .username(username)
                 .timestamp(Instant.now())
                 .userPrompt(request.getQuery())
                 .responseText("Error: " + error.getMessage())
@@ -149,12 +157,14 @@ public class ConversationService {
             .filter(record -> username.equals(record.getUsername()))
             // Map the database record to the DTO
             .map(record -> ConversationDetailDTO.builder()
+            	.id(record.getId())
                 .userPrompt(record.getUserPrompt())
                 .responseText(record.getResponseText())
                 .responseChart(record.getResponseChart())
                 .stepByStepReasoning(record.getStepByStepReasoning() != null ? record.getStepByStepReasoning().toString() : null)
                 .timestamp(record.getTimestamp())
                 .isError(record.getStatus() != ConversationStatus.SUCCESS)
+                .userFeedbackComment(record.getUserFeedbackComment())
                 .build()
             );
     }
@@ -170,8 +180,6 @@ public class ConversationService {
         return repository.findByConversationIdOrderByTimestampAsc(conversationId);
     }
     
- // Dentro de la clase ConversationService
-
     /**
      * Deletes all records associated with a conversation, but only if the
      * specified user is the owner.
@@ -193,6 +201,192 @@ public class ConversationService {
                 log.info("🗑️ Deleting conversation '{}' for user '{}'.", conversationId, username);
                 return repository.deleteByConversationId(conversationId);
             });
+    }
+    
+    /**
+     * Marks a specific record as REPORTED_BY_USER, but only if
+     * the user owns it.
+     *
+     * @param recordId The ID of the ConversationRecord to report.
+     * @param comment The user's optional feedback.
+     * @param username The authenticated user.
+     * @return A Mono of the updated record, or an error.
+     */
+    public Mono<ConversationRecord> reportRecord(String recordId, String comment, String username) {
+        return repository.findById(recordId)
+            .flatMap(record -> {
+                if (!record.getUsername().equals(username)) {
+                    log.warn("🚨 User '{}' attempted to report record '{}' owned by '{}'.", username, recordId, record.getUsername());
+                    return Mono.error(new SecurityException("User does not own this record."));
+                }
+                
+                record.setStatus(ConversationStatus.REPORTED_BY_USER);
+                record.setUserFeedbackComment(comment);
+                log.info("🚩 Record '{}' reported by user '{}' with comment: {}", recordId, username, comment);
+                return repository.save(record);
+            })
+            .switchIfEmpty(Mono.error(new RuntimeException("Record not found")));
+    }
+
+    /**
+     * Retrieves a paginated list of diagnostic tickets based on their status.
+     * * This method is designed to populate the "Inbox" view for the IT
+     * Diagnostic Panel.
+     * * It performs two database queries: one to fetch the paginated data and
+     * another to get the total count for pagination metadata.
+     *
+     * @param statuses A list of ConversationStatus enums to filter by.
+     * @param username The username string to filter by (case-insensitive contains).
+     * @param pageable Pagination and sorting information provided by Spring Data.
+     * @return A Mono emitting a Page containing the list of DiagnosticTicketDTOs
+     * and pagination details.
+     */
+    public Mono<Page<DiagnosticTicketDTO>> getTickets(List<ConversationStatus> statuses, String username, Pageable pageable) {
+    	
+    	Flux<ConversationRecord> pageQuery;
+        Mono<Long> countQuery;
+
+        if (StringUtils.isBlank(username)) {
+            pageQuery = repository.findByStatusInOrderByTimestampDesc(statuses, pageable);
+            countQuery = repository.countByStatusIn(statuses);
+        } else {
+            pageQuery = repository.findByStatusInAndUsernameContainsIgnoreCaseOrderByTimestampDesc(statuses, username, pageable);
+            countQuery = repository.countByStatusInAndUsernameContainsIgnoreCase(statuses, username);
+        }
+        
+    	Flux<DiagnosticTicketDTO> ticketsFlux = pageQuery
+    	        .map(record -> DiagnosticTicketDTO.builder()
+    	            .recordId(record.getId())
+    	            .conversationId(record.getConversationId())
+    	            .username(record.getUsername())
+    	            .timestamp(record.getTimestamp())
+    	            .status(record.getStatus())
+    	            .userPrompt(record.getUserPrompt())
+    	            .userFeedbackComment(record.getUserFeedbackComment())
+    	            .build()
+    	        );
+    	
+    	return Mono.zip(ticketsFlux.collectList(), countQuery)
+            .map((Tuple2<List<DiagnosticTicketDTO>, Long> tuple) -> { 
+                
+                List<DiagnosticTicketDTO> list = tuple.getT1();
+                long totalCount = tuple.getT2(); 
+
+                return PageableExecutionUtils.getPage(list, pageable, () -> totalCount);
+            });
+    }
+
+    /**
+     * Retrieves the full, detailed history of a conversation for an IT user.
+     * * This method bypasses the user ownership check and includes sensitive
+     * information like internal notes, making it suitable only for the
+     * diagnostic panel.
+     *
+     * @param conversationId The unique ID of the conversation to retrieve.
+     * @return A Flux emitting all ConversationDetailDTOs for the specified
+     * conversation, ordered by timestamp.
+     */
+    public Flux<ConversationDetailDTO> getConversationDetailsForIT(String conversationId) {
+        return repository.findByConversationIdOrderByTimestampAsc(conversationId)
+            .map(record -> ConversationDetailDTO.builder()
+                .id(record.getId())
+                .userPrompt(record.getUserPrompt())
+                .responseText(record.getResponseText())
+                .responseChart(record.getResponseChart())
+                .stepByStepReasoning(record.getStepByStepReasoning() != null ? record.getStepByStepReasoning().toString() : null)
+                .timestamp(record.getTimestamp())
+                .isError(record.getStatus() != ConversationStatus.SUCCESS)
+                .userFeedbackComment(record.getUserFeedbackComment())
+                .internalNotes(record.getInternalNotes()) // <-- Include notes for IT
+                .build()
+            );
+    }
+
+    /**
+     * Updates the status of a specific ConversationRecord (ticket).
+     *
+     * This action is performed by an IT user. Upon successful update,
+     * the modified record is returned as a detailed DTO.
+     *
+     * @param recordId The unique ID of the ConversationRecord to update.
+     * @param newStatus The new ConversationStatus to apply.
+     * @return A Mono emitting the updated ConversationDetailDTO.
+     */
+    public Mono<ConversationDetailDTO> updateRecordStatus(String recordId, ConversationStatus newStatus) {
+        return repository.findById(recordId)
+            .flatMap(record -> {
+                record.setStatus(newStatus);
+                log.info("🔄 Record '{}' status updated to {} by IT.", recordId, newStatus);
+                return repository.save(record);
+            })
+            .map(this::mapRecordToDetailDTO); // Map to DTO before returning
+    }
+
+    /**
+     * Adds a new internal note to a specific ConversationRecord (ticket).
+     *
+     * The note is automatically prepended with the current user and timestamp
+     * for auditing purposes.
+     *
+     * This action is performed by an IT user. Upon successful update,
+     * the modified record is returned as a detailed DTO.
+     *
+     * @param recordId The unique ID of the ConversationRecord to add a note to.
+     * @param note The text content of the note to add.
+     * @return A Mono emitting the updated ConversationDetailDTO.
+     */
+    public Mono<ConversationDetailDTO> addInternalNote(String recordId, String note) {
+        
+        // 1. Get the username reactively from the security context
+        Mono<String> usernameMono = SecurityUtils.getCurrentUsername()
+                .switchIfEmpty(Mono.just("system")); // Fallback just in case
+
+        // 2. Combine the repository call and username mono
+        return Mono.zip(repository.findById(recordId), usernameMono)
+            .flatMap(tuple -> {
+                ConversationRecord record = tuple.getT1();
+                String username = tuple.getT2();
+
+                if (record.getInternalNotes() == null) {
+                    record.setInternalNotes(new ArrayList<>());
+                }
+                
+                // 3. Format the note with the correct username
+                String formattedNote = String.format("[%s @ %s]: %s", 
+                    username, 
+                    Instant.now().toString(), 
+                    note
+                );
+                
+                record.getInternalNotes().add(formattedNote);
+                log.info("📝 Note added to record '{}' by IT.", recordId);
+                return repository.save(record);
+            })
+            .map(this::mapRecordToDetailDTO); // Map to DTO before returning
+    }
+    
+    /**
+     * Private helper method to convert a ConversationRecord entity into a
+     * ConversationDetailDTO.
+     *
+     * This DTO mapping is intended for IT users, as it includes sensitive
+     * fields such as internalNotes.
+     *
+     * @param record The ConversationRecord entity from the database.
+     * @return A ConversationDetailDTO populated with the record's data.
+     */
+    private ConversationDetailDTO mapRecordToDetailDTO(ConversationRecord record) {
+        return ConversationDetailDTO.builder()
+            .id(record.getId())
+            .userPrompt(record.getUserPrompt())
+            .responseText(record.getResponseText())
+            .responseChart(record.getResponseChart())
+            .stepByStepReasoning(record.getStepByStepReasoning() != null ? record.getStepByStepReasoning().toString() : null)
+            .timestamp(record.getTimestamp())
+            .isError(record.getStatus() != ConversationStatus.SUCCESS)
+            .userFeedbackComment(record.getUserFeedbackComment())
+            .internalNotes(record.getInternalNotes())
+            .build();
     }
 
 }

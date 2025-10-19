@@ -4,6 +4,7 @@ import es.alesqui.intelligence.dto.chat.response.ChartData;
 import lombok.Builder;
 import lombok.Data;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * A Data Transfer Object (DTO) that represents a single, complete "turn" or
@@ -16,6 +17,11 @@ import java.time.Instant;
 @Data
 @Builder
 public class ConversationDetailDTO {
+	
+	/**
+     * The unique ID of this specific ConversationRecord.
+     */
+    private String id;
 
     /**
      * The original, unmodified prompt or question submitted by the user for this turn.
@@ -51,4 +57,14 @@ public class ConversationDetailDTO {
      * processing error. Useful for highlighting problematic interactions in the UI.
      */
     private boolean isError;
+    
+    /**
+     * The user's feedback, if any.
+     */
+    private String userFeedbackComment;
+    
+    /**
+     * Internal notes, if any (only for IT).
+     */
+    private List<String> internalNotes;
 }

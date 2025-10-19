@@ -11,6 +11,8 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Represents a single interaction record within a user conversation in the Alesqui Intelligence application.
@@ -87,4 +89,15 @@ public class ConversationRecord {
      * (e.g., finding all REPORTED_BY_USER interactions).
      */
     private ConversationStatus status;
+    
+    /**
+     * The optional comment provided by the user when reporting.
+     */
+    private String userFeedbackComment;
+    
+    /**
+     * A list of internal notes added by the IT team for auditing.
+     */
+    @Builder.Default
+    private List<String> internalNotes = new ArrayList<>();
 }

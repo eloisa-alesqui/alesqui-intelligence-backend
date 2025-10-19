@@ -2,6 +2,10 @@ package es.alesqui.intelligence.repository;
 
 import es.alesqui.intelligence.model.conversation.ConversationRecord;
 import es.alesqui.intelligence.model.conversation.ConversationStatus;
+
+import java.util.List;
+
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
@@ -54,4 +58,57 @@ public interface ConversationRecordRepository extends ReactiveMongoRepository<Co
      * @return A {@link Mono<Void>} that completes once the deletion operation is finished.
      */
     Mono<Void> deleteByConversationId(String conversationId);
+    
+    /**
+    * Finds all ConversationRecords that match any of the provided statuses,
+    * ordered by timestamp in descending order, and returns them as a paginated Flux.
+    * * This query is used to populate the main list for the IT "Inbox" view.
+    *
+    * @param statuses A list of ConversationStatus enums to filter by.
+    * @param pageable A Pageable object containing pagination (page, size) and
+    * sorting information.
+    * @return A Flux emitting the ConversationRecords for the requested page.
+    */
+    Flux<ConversationRecord> findByStatusInOrderByTimestampDesc(List<ConversationStatus> statuses, Pageable pageable);
+
+
+    /**
+    * Counts the total number of ConversationRecords that match any of the
+    * provided statuses.
+    * * This query is used to calculate the total number of pages required
+    * for pagination in the IT "Inbox" view.
+    *
+    * @param statuses A list of ConversationStatus enums to count.
+    * @return A Mono emitting the total count as a Long.
+
+    */
+
+    Mono<Long> countByStatusIn(List<ConversationStatus> statuses);
+
+    /**
+     * Finds all ConversationRecords that match any of the provided statuses
+     * AND contain the given username (case-insensitive), ordered by timestamp descending.
+     * * This query is used to populate the IT "Inbox" view when a username filter is applied.
+     *
+     * @param statuses A list of ConversationStatus enums to filter by.
+     * @param username The username string to filter by (case-insensitive contains).
+     * @param pageable A Pageable object containing pagination (page, size) and
+     * sorting information.
+     * @return A Flux emitting the ConversationRecords for the requested page.
+     */
+    Flux<ConversationRecord> findByStatusInAndUsernameContainsIgnoreCaseOrderByTimestampDesc(
+            List<ConversationStatus> statuses, String username, Pageable pageable);
+    
+    /**
+     * Counts the total number of ConversationRecords that match any of the
+     * provided statuses AND contain the given username (case-insensitive).
+     * * This query is used to calculate the total number of pages required
+     * for pagination in the IT "Inbox" view when a username filter is applied.
+     *
+     * @param statuses A list of ConversationStatus enums to count.
+     * @param username The username string to count by (case-insensitive contains).
+     * @return A Mono emitting the total count as a Long.
+     */
+    Mono<Long> countByStatusInAndUsernameContainsIgnoreCase(
+            List<ConversationStatus> statuses, String username);
 }

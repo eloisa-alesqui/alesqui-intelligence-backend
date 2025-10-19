@@ -6,11 +6,15 @@ import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.conversation.ConversationService;
 import lombok.RequiredArgsConstructor;
 
+import java.security.Principal;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
@@ -22,6 +26,9 @@ import reactor.core.publisher.Mono;
 public class ConversationController {
 
     private final ConversationService conversationService;
+    
+    // DTO for the request body
+    public record ReportRequest(String comment) {}
 
     /**
      * Retrieves a list of conversation summaries for the authenticated user.
@@ -58,6 +65,22 @@ public class ConversationController {
             .flatMap(username -> conversationService.deleteConversationForUser(conversationId, username))
             .then(Mono.just(new ResponseEntity<Void>(HttpStatus.NO_CONTENT))) 
             .defaultIfEmpty(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+    }
+    
+    /**
+     * Allows an authenticated user to report an issue with a specific
+     * conversation record (message).
+     */
+    @PostMapping("/records/{recordId}/report")
+    public Mono<ResponseEntity<String>> reportIssue(
+            @PathVariable String recordId,
+            @RequestBody ReportRequest request,
+            Principal principal) {
+        
+        return conversationService.reportRecord(recordId, request.comment(), principal.getName())
+            .map(updatedRecord -> ResponseEntity.ok("{\"message\": \"Thank you for your feedback. A report has been sent to the IT team.\" }"))
+            .onErrorResume(SecurityException.class, e -> Mono.just(ResponseEntity.status(403).body("{\"error\": \"Forbidden\"}")))
+            .onErrorResume(Exception.class, e -> Mono.just(ResponseEntity.status(404).body("{\"error\": \"Record not found\"}")));
     }
 
 }
