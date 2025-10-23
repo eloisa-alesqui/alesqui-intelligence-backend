@@ -8,6 +8,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
+import es.alesqui.intelligence.dto.chat.reasoning.ReasoningStep;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 
 import java.time.Instant;
@@ -78,10 +79,11 @@ public class ConversationRecord {
 
     /**
      * The detailed reasoning process the AI agent followed to arrive at the final answer.
-     * This is crucial for debugging by the IT team. It is stored as a flexible Object
-     * to accommodate various structures (e.g., a JSON string or a nested Map).
+     * This is stored as a list of structured objects (BSON array) for rich querying
+     * and debugging by the IT team.
      */
-    private Object stepByStepReasoning;
+    @Builder.Default
+    private List<ReasoningStep> stepByStepReasoning = new ArrayList<>();
 
     /**
      * The current status of this interaction record.

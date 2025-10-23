@@ -221,17 +221,13 @@ public class ApiCallResponse {
 	 * @return this response for method chaining
 	 */
 	public ApiCallResponse withRawResponse(String rawResponse) {
-	  // Puedes agregar un campo rawResponse si quieres almacenarlo
-	  // o simplemente usar responseData para almacenar la respuesta raw
 	  if (rawResponse != null && !rawResponse.trim().isEmpty()) {
-	      // Si ya hay responseData, crear un mapa que incluya ambos
 	      if (this.responseData != null) {
 	          Map<String, Object> combinedData = new HashMap<>();
 	          combinedData.put("parsedData", this.responseData);
 	          combinedData.put("rawResponse", rawResponse);
 	          this.responseData = combinedData;
 	      } else {
-	          // Si no hay responseData, usar la respuesta raw
 	          this.responseData = rawResponse;
 	      }
 	  }

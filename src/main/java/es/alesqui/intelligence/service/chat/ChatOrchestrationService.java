@@ -11,6 +11,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 import es.alesqui.intelligence.config.ChatConfig;
+import es.alesqui.intelligence.dto.chat.reasoning.ReasoningStep;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
@@ -25,6 +26,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -81,41 +83,43 @@ public class ChatOrchestrationService {
      * @return A Flux of SseEvent that emits real-time status updates, followed by either a
      * single final response event or a single error event before completing.
      */
-	public Flux<SseEvent> processQuery(ChatRequest request) {
-		log.info("🚀 Processing chat request: '{}' for conversation: {}", request.getQuery(),
-				request.getConversationId());
+    public Flux<SseEvent> processQuery(ChatRequest request) {
+        log.info("🚀 Processing chat request: '{}' for conversation: {}", 
+                 request.getQuery(), request.getConversationId());
 
-		return SecurityUtils.getCurrentUsername().switchIfEmpty(Mono.just("anonymous_fallback"))
-				.flatMapMany(username -> {
-					Sinks.Many<SseEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
+        return SecurityUtils.getCurrentUsername()
+                .switchIfEmpty(Mono.just("anonymous_fallback"))
+                .flatMapMany(username -> {
+                    Sinks.Many<SseEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
 
-					// 1. Prepare the Mono that performs all the background work and returns the
-					// final response.
-					Mono<ChatResponse> processingChain = processWithUsername(request, username, sink)
-							.subscribeOn(Schedulers.boundedElastic()) // Run the entire processing chain on a separate
-																		// scheduler.
-							.cache();
+                    // 1. Create the processing Mono
+                    Mono<ChatResponse> processingChain = processWithUsername(request, username, sink)
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .cache();
 
-					// 2. Define the stream for the status update events from the sink.
-					// A delay is applied to each element to ensure they are readable in the client
-					// UI.
-					Flux<SseEvent> statusUpdates = sink.asFlux().delayElements(Duration.ofMillis(700));
+                    // 2. Immediately subscribe to start processing (with error handling)
+                    processingChain.subscribe(
+                        result -> log.debug("Processing completed successfully"),
+                        error -> {
+                            log.error("Processing failed: {}", error.getMessage());
+                            sink.tryEmitComplete();
+                        }
+                    );
 
-					// 3. Define the stream that will contain only the single, final response.
-					// This is created by mapping the result of the processing chain.
-					Flux<SseEvent> finalResponse = processingChain.map(SseEvent::finalResponse).flux();
+                    // 3. Status updates
+                    Flux<SseEvent> statusUpdates = sink.asFlux()
+                            .delayElements(Duration.ofMillis(400));
 
-					// 4. Merge the streams to run them in parallel.
-					// `merge` is the key to breaking the deadlock. It subscribes to `statusUpdates`
-					// and `finalResponse` at the same time, allowing the background process to
-					// start immediately while the status stream is already listening for events.
-					return Flux.merge(statusUpdates, finalResponse).onErrorResume(error -> {
-						// If an error occurs at ANY point in either the processing or status streams,
-						// gracefully resume with a single, user-friendly error event.
-						return Flux.just(SseEvent.error(error.getMessage()));
-					});
-				});
-	}
+                    // 4. Final response
+                    Flux<SseEvent> finalResponse = processingChain
+                            .map(SseEvent::finalResponse)
+                            .flux();
+
+                    // 5. Concat in order
+                    return Flux.concat(statusUpdates, finalResponse)
+                            .onErrorResume(error -> Flux.just(SseEvent.error(error.getMessage())));
+                });
+    }
 
     /**
      * Orchestrates the core logic for processing a chat request for a specific user.
@@ -221,19 +225,23 @@ public class ChatOrchestrationService {
                 ));
             })
             .map(chatWithReasoningResponse -> {
+                // Extract the final text content from the raw Spring AI response
                 String responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
-                String formattedReasoning = null;
+                
+                List<ReasoningStep> reasoningSteps = null;
                 if (request.isIncludeReasoning()) {
-                    formattedReasoning = chatWithReasoningResponse.getFormattedReasoning();
+                    reasoningSteps = chatWithReasoningResponse.getReasoningSteps();
                 }
                 
+                // Get chart data if it was generated
                 ChartData chartData = chatWithReasoningResponse.getChart();
                 
                 long processingTime = Duration.between(startTime, Instant.now()).toMillis();
                 
+                // Build the final ChatResponse DTO to be sent to the frontend
                 return ChatResponse.builder()
                         .content(responseContent)
-                        .reasoning(formattedReasoning)
+                        .reasoningSteps(reasoningSteps) // <-- Use the new 'reasoningSteps' field
                         .chart(chartData)
                         .conversationId(request.getConversationId())
                         .success(true)

@@ -1,5 +1,6 @@
 package es.alesqui.intelligence.dto.conversation;
 
+import es.alesqui.intelligence.dto.chat.reasoning.ReasoningStep;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import lombok.Builder;
 import lombok.Data;
@@ -41,11 +42,11 @@ public class ConversationDetailDTO {
     private ChartData responseChart;
 
     /**
-     * The formatted step-by-step reasoning narrative produced by the AI agent.
+     * The structured step-by-step reasoning list produced by the AI agent.
      * This is intended for the IT role to debug and understand the agent's
-     * decision-making process.
+     * decision-making process. It will be serialized as a JSON array.
      */
-    private String stepByStepReasoning;
+    private List<ReasoningStep> stepByStepReasoning;
 
     /**
      * The exact timestamp when this interaction occurred.

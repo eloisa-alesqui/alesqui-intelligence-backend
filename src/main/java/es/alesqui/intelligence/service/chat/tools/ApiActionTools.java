@@ -124,6 +124,7 @@ public class ApiActionTools {
         
         Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
         if (sink != null) sink.tryEmitNext(SseEvent.status("Inspecting request body schema for API: " + apiName + ", Operation: " + operationId + "..."));
+        
         log.info("Executing tool: inspect_request_body_schema - API: '{}', Operation: '{}'", apiName, operationId);
 
         try {
@@ -337,6 +338,7 @@ public class ApiActionTools {
     ) {
     	Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
     	if (sink != null) sink.tryEmitNext(SseEvent.status("Generating '" + chartType + "' chart configuration..."));
+    	
         try {
             List<Map<String, Object>> data = objectMapper.readValue(jsonData, new TypeReference<>() {});
             List<String> labels = data.stream().map(row -> String.valueOf(row.get(labelKey))).collect(Collectors.toList());
@@ -380,6 +382,7 @@ public class ApiActionTools {
     ) {
         Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
         if (sink != null) sink.tryEmitNext(SseEvent.status("Processing data with operation: '" + operation + "'..."));
+        
         log.info("Executing tool: processData with operation '{}' and filter '{}'", operation, filterExpression);
 
         try {
