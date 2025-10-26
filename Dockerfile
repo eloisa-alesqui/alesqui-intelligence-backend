@@ -25,9 +25,13 @@ ENV APP_HOME=/opt/app \
 
 WORKDIR ${APP_HOME}
 
-# Copy the built JAR
-COPY --from=build /app/target/*-SNAPSHOT.jar app.jar 2>/dev/null || true
-COPY --from=build /app/target/*-*.jar app.jar
+# Copy jar artifacts and select the bootable jar (exclude .original)
+COPY --from=build /app/target /runtime
+RUN set -eux; \
+  JAR="$(ls /runtime/*.jar | grep -v '\\.original$' | head -n 1)"; \
+  test -n "$JAR"; \
+  mv "$JAR" app.jar; \
+  rm -rf /runtime
 
 # Expose port (Render sets PORT env var; server.port is already wired to ${PORT:8080})
 EXPOSE 8080
