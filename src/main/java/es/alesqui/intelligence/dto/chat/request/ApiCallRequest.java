@@ -67,11 +67,7 @@ public class ApiCallRequest {
 	@Builder.Default
 	private int timeoutMs = 5000;
 
-	/**
-	 * Unique identifier for the conversation session making this call.
-	 */
-	@NotBlank(message = "Conversation ID is required")
-	private String conversationId;
+	// conversationId removed from the API call request to simplify payloads.
 
 	/**
 	 * Creates a simple GET request to an API endpoint.
@@ -81,8 +77,8 @@ public class ApiCallRequest {
 	 * @param conversationId conversation identifier
 	 * @return new ApiCallRequest for GET operation
 	 */
-	public static ApiCallRequest get(String apiName, String endpoint, String path, String conversationId) {
-		return new ApiCallRequest(apiName, endpoint, path, "GET", new HashMap<>(), new HashMap<>(), 5000, conversationId);
+	public static ApiCallRequest get(String apiName, String endpoint, String path) {
+		return new ApiCallRequest(apiName, endpoint, path, "GET", new HashMap<>(), new HashMap<>(), 5000);
 	}
 
 	/**
@@ -94,9 +90,8 @@ public class ApiCallRequest {
 	 * @param conversationId conversation identifier
 	 * @return new ApiCallRequest for POST operation
 	 */
-	public static ApiCallRequest post(String apiName, String endpoint, String path, Map<String, Object> parameters,
-			String conversationId) {
-		return new ApiCallRequest(apiName, endpoint, path, "POST", parameters, new HashMap<>(), 5000, conversationId);
+	public static ApiCallRequest post(String apiName, String endpoint, String path, Map<String, Object> parameters) {
+		return new ApiCallRequest(apiName, endpoint, path, "POST", parameters, new HashMap<>(), 5000);
 	}
 
 	/**

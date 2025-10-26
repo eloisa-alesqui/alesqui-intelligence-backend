@@ -165,13 +165,12 @@ public class ApiExecutionService {
             WebClientResponseException webEx = (WebClientResponseException) throwable;
             failureResponse = ApiCallResponse.failure(
                     "API call failed: " + webEx.getMessage(),
-                    webEx.getStatusCode().value(),
-                    request.getConversationId()
-            ).withRawResponse(webEx.getResponseBodyAsString());
+                    webEx.getStatusCode().value()
+            );
         } else if (throwable instanceof java.util.concurrent.TimeoutException) {
-            failureResponse = ApiCallResponse.failure("API call timeout", 408, request.getConversationId());
+            failureResponse = ApiCallResponse.failure("API call timeout", 408);
         } else {
-            failureResponse = ApiCallResponse.failure("Unexpected error: " + throwable.getMessage(), 500, request.getConversationId());
+            failureResponse = ApiCallResponse.failure("Unexpected error: " + throwable.getMessage(), 500);
         }
 
         return Mono.just(failureResponse
@@ -187,10 +186,10 @@ public class ApiExecutionService {
         if (loggingEnabled) {
             log.info("API call for '{}' completed in {}ms", request.getApiName(), executionTime);
         }
-        return ApiCallResponse.success(Map.of("response", responseBody), 200, request.getConversationId())
+        // Keep response payload minimal (just the body as-is) and avoid duplicating raw/parsed data
+        return ApiCallResponse.success(responseBody, 200)
                 .withApiDetails(request.getApiName(), request.getEndpoint(), request.getHttpMethod())
-                .withExecutionTime(executionTime)
-                .withRawResponse(responseBody);
+                .withExecutionTime(executionTime);
     }
     
     /**

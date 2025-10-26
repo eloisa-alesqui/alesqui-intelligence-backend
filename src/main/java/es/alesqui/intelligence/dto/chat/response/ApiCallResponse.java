@@ -69,36 +69,22 @@ public class ApiCallResponse {
 	 */
 	private String httpMethod;
 
-	/**
-	 * Unique identifier for the conversation session.
-	 */
-	private String conversationId;
+
 
 	/**
-	 * Creates a successful API call response.
+	 * Creates a successful API call response without a conversation identifier.
+	 * Keeps the payload minimal (no raw/parsed duplication).
 	 *
-	 * @param responseData   data returned by the API
-	 * @param statusCode     HTTP status code
-	 * @param conversationId unique conversation identifier
+	 * @param responseData data returned by the API
+	 * @param statusCode   HTTP status code
 	 * @return ApiCallResponse for successful call
 	 */
-	public static ApiCallResponse success(Object responseData, int statusCode, String conversationId) {
+	public static ApiCallResponse success(Object responseData, int statusCode) {
 		return ApiCallResponse.builder().success(true).responseData(responseData).statusCode(statusCode)
-				.conversationId(conversationId).timestamp(Instant.now()).build();
+				.timestamp(Instant.now()).build();
 	}
 
-	/**
-	 * Creates a failed API call response.
-	 *
-	 * @param errorMessage   description of the error
-	 * @param statusCode     HTTP status code
-	 * @param conversationId unique conversation identifier
-	 * @return ApiCallResponse for failed call
-	 */
-	public static ApiCallResponse failure(String errorMessage, int statusCode, String conversationId) {
-		return ApiCallResponse.builder().success(false).errorMessage(errorMessage).statusCode(statusCode)
-				.conversationId(conversationId).timestamp(Instant.now()).build();
-	}
+	// Removed legacy failure overload with conversationId to keep payload minimal.
 	
 	/**
 	 * Creates a failure response with a structured error object in the response
@@ -131,10 +117,7 @@ public class ApiCallResponse {
 	 * @param conversationId unique conversation identifier
 	 * @return ApiCallResponse for timeout error
 	 */
-	public static ApiCallResponse timeout(String conversationId) {
-		return ApiCallResponse.builder().success(false).errorMessage("API call timed out").statusCode(408)
-				.conversationId(conversationId).timestamp(Instant.now()).build();
-	}
+
 
 	/**
 	 * Sets the API call details.
@@ -196,43 +179,9 @@ public class ApiCallResponse {
 		return statusCode >= 200 && statusCode < 300;
 	}
 
-	/**
-	 * Gets the response data as a string.
-	 *
-	 * @return string representation of response data
-	 */
-	public String getResponseAsString() {
-		return responseData != null ? responseData.toString() : "";
-	}
-
-	/**
-	 * Checks if the response contains data.
-	 *
-	 * @return true if response data is not null
-	 */
-	public boolean hasResponseData() {
-		return responseData != null;
-	}
+	// Removed string conversion and presence helpers to keep the DTO minimal.
 	
-	/**
-	 * Sets the raw response body for debugging purposes.
-	 *
-	 * @param rawResponse raw response body as string
-	 * @return this response for method chaining
-	 */
-	public ApiCallResponse withRawResponse(String rawResponse) {
-	  if (rawResponse != null && !rawResponse.trim().isEmpty()) {
-	      if (this.responseData != null) {
-	          Map<String, Object> combinedData = new HashMap<>();
-	          combinedData.put("parsedData", this.responseData);
-	          combinedData.put("rawResponse", rawResponse);
-	          this.responseData = combinedData;
-	      } else {
-	          this.responseData = rawResponse;
-	      }
-	  }
-	  return this;
-	}
+	// Removed withRawResponse to keep responses minimal and avoid duplicating payloads.
 
 	/**
 	 * Creates a failed API call response with timeout.
@@ -241,15 +190,7 @@ public class ApiCallResponse {
 	 * @param timeoutSeconds timeout duration in seconds
 	 * @return ApiCallResponse for timeout error
 	 */
-	public static ApiCallResponse timeoutError(String conversationId, int timeoutSeconds) {
-	  return ApiCallResponse.builder()
-	          .success(false)
-	          .errorMessage("API call timed out after " + timeoutSeconds + " seconds")
-	          .statusCode(408)
-	          .conversationId(conversationId)
-	          .timestamp(Instant.now())
-	          .build();
-	}
+
 
 	/**
 	 * Creates a failed API call response for connection errors.
@@ -258,13 +199,5 @@ public class ApiCallResponse {
 	 * @param conversationId unique conversation identifier
 	 * @return ApiCallResponse for connection error
 	 */
-	public static ApiCallResponse connectionError(String errorMessage, String conversationId) {
-	  return ApiCallResponse.builder()
-	          .success(false)
-	          .errorMessage("Connection error: " + errorMessage)
-	          .statusCode(503)
-	          .conversationId(conversationId)
-	          .timestamp(Instant.now())
-	          .build();
-	}
+
 }

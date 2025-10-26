@@ -12,9 +12,11 @@ import es.alesqui.intelligence.exception.ParameterValidationException;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedMediaType;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedExample;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedRequestBody;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedSchema;
+import es.alesqui.intelligence.model.api_spec.unified.UnifiedResponse;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedTag;
 import es.alesqui.intelligence.service.UnifiedApiService;
 import es.alesqui.intelligence.service.api.ApiExecutionService;
@@ -108,81 +110,14 @@ public class ApiActionTools {
         }
     }
     
-    /**
-     * Inspects the detailed schema of a requestBody for a given API endpoint.
-     * This tool now correctly navigates the content map to find the schema.
-     *
-     * @param apiName The name of the API (e.g., "ecommerce").
-     * @param operationId The operation ID of the endpoint (e.g., "createUser").
-     * @return A Markdown string detailing the requestBody's schema, or an error message.
-     */
-    @Tool(name = "inspect_request_body_schema", description = "Inspects the detailed schema (including required fields and types) for an API endpoint's requestBody. Use this when you need to know what JSON data to send for a POST/PUT operation.")
-    public String inspectRequestBodySchema(
-            @ToolParam(description = "The exact name of the API.") String apiName,
-            @ToolParam(description = "The operation ID of the endpoint.") String operationId,
-            ToolContext toolContext) {
-        
-        Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
-        if (sink != null) sink.tryEmitNext(SseEvent.status("Inspecting request body schema for API: " + apiName + ", Operation: " + operationId + "..."));
-        
-        log.info("Executing tool: inspect_request_body_schema - API: '{}', Operation: '{}'", apiName, operationId);
-
-        try {
-            UnifiedApiDocument api = unifiedApiService.findByName(apiName.trim()).block(Duration.ofSeconds(10));
-            if (api == null) throw new IllegalArgumentException("No API found with name: " + apiName);
-
-            UnifiedEndpoint endpoint = api.getEndpoints().stream()
-                    .filter(e -> operationId.trim().equals(e.getOperationId()))
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("No endpoint found with operation ID '" + operationId + "' in API '" + apiName + "'"));
-
-            UnifiedRequestBody requestBody = endpoint.getRequestBody();
-            if (requestBody == null || requestBody.getContent() == null || requestBody.getContent().isEmpty()) {
-                return "The endpoint '" + operationId + "' in API '" + apiName + "' does not define a request body.";
-            }
-
-            UnifiedMediaType mediaType = requestBody.getContent().get("application/json");
-
-            if (mediaType == null) {
-                mediaType = requestBody.getContent().values().stream().findFirst().orElse(null);
-            }
-
-            if (mediaType == null || mediaType.getSchema() == null) {
-                return "The endpoint '" + operationId + "' does not define a usable schema for its request body.";
-            }
-
-            UnifiedSchema schemaToRender = mediaType.getSchema();
-
-            if (schemaToRender.getRef() != null && !schemaToRender.getRef().isBlank()) {
-                String schemaName = schemaToRender.getRef().substring(schemaToRender.getRef().lastIndexOf('/') + 1);
-                
-                Map<String, UnifiedSchema> allApiSchemas = api.getSchemas();
-                if (allApiSchemas != null && allApiSchemas.containsKey(schemaName)) {
-                    log.debug("Resolving schema reference for '{}'", schemaName);
-                    schemaToRender = allApiSchemas.get(schemaName);
-                    
-                    if (schemaToRender.getTitle() == null) {
-                        schemaToRender.setTitle(schemaName);
-                    }
-                } else {
-                    throw new IllegalStateException("Schema reference '" + schemaName + "' could not be found in the API definition.");
-                }
-            }
-
-            return "```markdown\n" + schemaToRender.toMarkdown() + "\n```";
-
-        } catch (Exception e) {
-            log.error("Error inspecting request body schema for API: '{}', Operation: '{}'", apiName, operationId, e);
-            return "Error inspecting schema: " + e.getMessage();
-        }
-    }
+    // Removed old inspect_request_body_schema in favor of inspect_endpoint
 
     /**
      * Gets the endpoints (operations) for a specific API.
      * @param apiName The exact name of the API to inspect.
      * @return A formatted string listing the endpoints for the specified API.
      */
-    @Tool(name = "list_endpoints", description = "Gets the endpoints (operations) for a specific API, including their required parameters.")
+    @Tool(name = "list_endpoints", description = "Lists endpoints for a specific API (operationId, method, summary). Use 'inspect_endpoint' to get full details.")
     public String listEndpoints(@ToolParam(description = "The exact name of the API to inspect.") String apiName, ToolContext toolContext) {
     	Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
         if (sink != null) sink.tryEmitNext(SseEvent.status("Listing endpoints for API: " + apiName + "..."));
@@ -199,12 +134,74 @@ public class ApiActionTools {
 
             if (sink != null) sink.tryEmitNext(SseEvent.status("Found " + api.getEndpoints().size() + " endpoints for " + apiName + "."));
             return "Available endpoints for API '" + apiName + "':\n" + api.getEndpoints().stream()
-                .map(e -> String.format("• OperationId: %s, Method: %s, Description: %s\n%s", e.getOperationId(), e.getMethod(), e.getSummary(), formatParametersForLLM(e.getParameters())))
+                .map(e -> {
+                    String summary = StringUtils.isNotBlank(e.getSummary()) ? e.getSummary() : (e.getDescription() != null ? e.getDescription() : "");
+                    String base = String.format("• OperationId: %s, Method: %s, Summary: %s", e.getOperationId(), e.getMethod(), summary);
+                    if (e.getParameters() != null && !e.getParameters().isEmpty()) {
+                        String names = e.getParameters().stream().map(UnifiedParameter::getName).collect(Collectors.joining(", "));
+                        base += String.format("\n  - Parameter names: [%s]", names);
+                    }
+                    return base;
+                })
                 .collect(Collectors.joining("\n\n")); 
         } catch (Exception e) {
             log.error("Error in listEndpoints tool for API '{}'", apiName, e);
             if (sink != null) sink.tryEmitNext(SseEvent.status("Failed to list endpoints."));
             return "Error listing endpoints for '" + apiName + "': " + e.getMessage();
+        }
+    }
+
+    /**
+     * Provides full details for a specific endpoint: description, detailed parameters (with schema), requestBody schema (if any), and responses summary.
+     */
+    @Tool(name = "inspect_endpoint", description = "Shows full details for an API endpoint (description, parameters with schema, requestBody schema if present, and responses). Use after list_endpoints.")
+    public String inspectEndpoint(
+        @ToolParam(description = "The exact name of the API.") String apiName,
+        @ToolParam(description = "The operation ID of the endpoint.") String operationId,
+        ToolContext toolContext
+    ) {
+        Sinks.Many<SseEvent> sink = getSinkFromContext(toolContext);
+        if (sink != null) sink.tryEmitNext(SseEvent.status("Inspecting endpoint details for API: " + apiName + ", Operation: " + operationId + "..."));
+
+        try {
+            UnifiedApiDocument api = unifiedApiService.findByName(apiName.trim()).block(Duration.ofSeconds(10));
+            if (api == null) throw new IllegalArgumentException("No API found with name: " + apiName);
+
+            UnifiedEndpoint endpoint = api.getEndpoints().stream()
+                .filter(e -> operationId.trim().equals(e.getOperationId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("No endpoint found with operation ID '" + operationId + "' in API '" + apiName + "'"));
+
+            StringBuilder sb = new StringBuilder();
+                        sb.append("## Endpoint: ").append(endpoint.getOperationId())
+                            .append(" (" ).append(endpoint.getMethod()).append(") ")
+                            .append(endpoint.getPath() != null ? endpoint.getPath() : "").append("\n\n");
+
+            if (StringUtils.isNotBlank(endpoint.getSummary())) {
+                sb.append("**Summary:** ").append(endpoint.getSummary()).append("\n\n");
+            }
+            if (StringUtils.isNotBlank(endpoint.getDescription())) {
+                sb.append("**Description:** ").append(endpoint.getDescription()).append("\n\n");
+            }
+
+            // Parameters (detailed)
+            sb.append("### Parameters\n");
+            sb.append(formatParametersDetailedForLLM(api, endpoint.getParameters())).append("\n\n");
+
+            // Request Body (if present)
+            sb.append("### Request Body\n");
+            sb.append(renderRequestBodySchemaMarkdown(api, endpoint.getRequestBody())).append("\n\n");
+
+            // Responses (basic summary with schemas if available)
+            sb.append("### Responses\n");
+            sb.append(formatResponsesForLLM(api, endpoint.getResponses())).append("\n");
+
+            if (sink != null) sink.tryEmitNext(SseEvent.status("Endpoint details assembled."));
+            return sb.toString();
+
+        } catch (Exception e) {
+            log.error("Error inspecting endpoint for API: '{}', Operation: '{}'", apiName, operationId, e);
+            return "Error inspecting endpoint: " + e.getMessage();
         }
     }
     
@@ -241,8 +238,7 @@ public class ApiActionTools {
             Map<String, Object> paramMap = parseParameters(parameters);
             validateParametersAgainstSpec(endpoint, paramMap);
             
-            String conversationId = (String) toolContext.getContext().get("conversationId");
-            ApiCallRequest apiCallRequest = buildApiCallRequest(api, endpoint, paramMap, conversationId);
+            ApiCallRequest apiCallRequest = buildApiCallRequest(api, endpoint, paramMap);
             
             if (sink != null) sink.tryEmitNext(SseEvent.status("Executing API call..."));
             ApiCallResponse response = apiExecutionService.executeApiCall(apiCallRequest).block(Duration.ofSeconds(30));
@@ -576,11 +572,149 @@ public class ApiActionTools {
         }
     }
     
+    // Legacy helper kept for reference in case other tools reuse it in the future.
+    // Currently not used after simplifying list_endpoints output.
+    @SuppressWarnings("unused")
     private String formatParametersForLLM(List<UnifiedParameter> parameters) {
         if (parameters == null || parameters.isEmpty()) return "  - Parameters: None";
         return "  - Parameters:\n" + parameters.stream()
             .map(p -> String.format("    - Name: %s, In: %s, Required: %s, Description: %s", p.getName(), p.getIn(), p.isRequired(), p.getDescription()))
             .collect(Collectors.joining("\n"));
+    }
+
+    private String formatParametersDetailedForLLM(UnifiedApiDocument api, List<UnifiedParameter> parameters) {
+        if (parameters == null || parameters.isEmpty()) return "No parameters.";
+        StringBuilder sb = new StringBuilder();
+        for (UnifiedParameter p : parameters) {
+            sb.append("- Name: ").append(p.getName())
+              .append(", In: ").append(p.getIn() != null ? p.getIn() : "")
+              .append(", Required: ").append(p.isRequired())
+              .append("\n");
+            if (StringUtils.isNotBlank(p.getDescription())) {
+                sb.append("  Description: ").append(p.getDescription()).append("\n");
+            }
+            if (StringUtils.isNotBlank(p.getType())) {
+                sb.append("  Type: ").append(p.getType());
+                if (StringUtils.isNotBlank(p.getFormat())) sb.append(" (" + p.getFormat() + ")");
+                sb.append("\n");
+            }
+            if (p.getDefaultValue() != null) {
+                sb.append("  Default: ").append(p.getDefaultValue()).append("\n");
+            }
+            if (p.getExample() != null) {
+                sb.append("  Example: ").append(p.getExample()).append("\n");
+            }
+            if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
+                sb.append("  Allowed values: ").append(p.getEnumValues().stream().map(String::valueOf).collect(Collectors.joining(", "))).append("\n");
+            }
+            if (p.getSchema() != null) {
+                UnifiedSchema schema = resolveSchemaRef(api, p.getSchema());
+                sb.append("  Schema:\n");
+                sb.append("```markdown\n").append(schema.toMarkdown()).append("\n```\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String renderRequestBodySchemaMarkdown(UnifiedApiDocument api, UnifiedRequestBody requestBody) {
+        if (requestBody == null || requestBody.getContent() == null || requestBody.getContent().isEmpty()) {
+            return "No request body.";
+        }
+        UnifiedMediaType mediaType = requestBody.getContent().get("application/json");
+        if (mediaType == null) {
+            mediaType = requestBody.getContent().values().stream().findFirst().orElse(null);
+        }
+        if (mediaType == null || mediaType.getSchema() == null) {
+            return "No usable schema found for request body.";
+        }
+        UnifiedSchema schemaToRender = resolveSchemaRef(api, mediaType.getSchema());
+        StringBuilder sb = new StringBuilder();
+        sb.append("```markdown\n").append(schemaToRender.toMarkdown()).append("\n```\n");
+        sb.append(formatMediaTypeExamples(mediaType));
+        return sb.toString();
+    }
+
+    private UnifiedSchema resolveSchemaRef(UnifiedApiDocument api, UnifiedSchema schema) {
+        if (schema == null) return null;
+        if (schema.getRef() != null && !schema.getRef().isBlank()) {
+            String schemaName = schema.getRef().substring(schema.getRef().lastIndexOf('/') + 1);
+            Map<String, UnifiedSchema> allApiSchemas = api.getSchemas();
+            if (allApiSchemas != null && allApiSchemas.containsKey(schemaName)) {
+                UnifiedSchema resolved = allApiSchemas.get(schemaName);
+                if (resolved.getTitle() == null) {
+                    resolved.setTitle(schemaName);
+                }
+                return resolved;
+            }
+        }
+        return schema;
+    }
+
+    private String formatResponsesForLLM(UnifiedApiDocument api, Map<String, UnifiedResponse> responses) {
+        if (responses == null || responses.isEmpty()) return "No responses documented.";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, UnifiedResponse> entry : responses.entrySet()) {
+            String status = entry.getKey();
+            UnifiedResponse resp = entry.getValue();
+            sb.append("- ").append(status).append(": ").append(resp.getDescription() != null ? resp.getDescription() : "").append("\n");
+            if (resp.getContent() != null && !resp.getContent().isEmpty()) {
+                sb.append("  Content types: ").append(String.join(", ", resp.getContent().keySet())).append("\n");
+                UnifiedMediaType mt = resp.getContent().get("application/json");
+                if (mt == null) mt = resp.getContent().values().stream().findFirst().orElse(null);
+                if (mt != null && mt.getSchema() != null) {
+                    UnifiedSchema s = resolveSchemaRef(api, mt.getSchema());
+                    sb.append("  Schema:\n");
+                    sb.append("```markdown\n").append(s.toMarkdown()).append("\n```\n");
+                    String examplesBlock = formatMediaTypeExamples(mt);
+                    if (!examplesBlock.isEmpty()) {
+                        sb.append(examplesBlock);
+                    }
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    private String formatMediaTypeExamples(UnifiedMediaType mediaType) {
+        StringBuilder sb = new StringBuilder();
+        // Single unnamed example
+        Object ex = mediaType.getExample();
+        if (ex != null) {
+            sb.append("  Example:\n");
+            sb.append("```json\n").append(prettyJson(ex)).append("\n```\n");
+        }
+        // Named examples
+        Map<String, UnifiedExample> examples = mediaType.getExamples();
+        if (examples != null && !examples.isEmpty()) {
+            sb.append("  Examples:\n");
+            for (Map.Entry<String, UnifiedExample> e : examples.entrySet()) {
+                UnifiedExample ue = e.getValue();
+                String name = ue.getName() != null ? ue.getName() : e.getKey();
+                sb.append("  - ").append(name);
+                if (ue.getSummary() != null) sb.append(" — ").append(ue.getSummary());
+                sb.append("\n");
+                if (ue.getDescription() != null) sb.append("    ").append(ue.getDescription()).append("\n");
+                if (ue.getExternalValue() != null) sb.append("    external: ").append(ue.getExternalValue()).append("\n");
+                if (ue.getValue() != null) {
+                    sb.append("```json\n").append(prettyJson(ue.getValue())).append("\n```\n");
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    private String prettyJson(Object value) {
+        try {
+            if (value instanceof String) {
+                // Try to detect if it's already JSON; if not, just return string
+                String s = (String) value;
+                Object parsed = objectMapper.readValue(s, Object.class);
+                return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+            }
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+        } catch (Exception ex) {
+            return String.valueOf(value);
+        }
     }
 
     private ApiCallResponse createStructuredErrorResponse(String apiName, String operationId, Exception e) {
@@ -648,7 +782,7 @@ public class ApiActionTools {
         return resolvedPath;
     }
 
-    private ApiCallRequest buildApiCallRequest(UnifiedApiDocument api, UnifiedEndpoint endpoint, Map<String, Object> parameters, String conversationId) {
+    private ApiCallRequest buildApiCallRequest(UnifiedApiDocument api, UnifiedEndpoint endpoint, Map<String, Object> parameters) {
         String resolvedPath = resolvePath(endpoint, parameters);
         Map<String, Object> remainingParameters = new HashMap<>(parameters);
         if (endpoint.getParameters() != null) {
@@ -663,7 +797,6 @@ public class ApiActionTools {
                 .headers(new HashMap<>())
                 .httpMethod(endpoint.getMethod())
                 .parameters(remainingParameters)
-                .conversationId(conversationId)
                 .build();
     }
     
@@ -674,6 +807,7 @@ public class ApiActionTools {
      * @param nestedKey The dot-separated key (e.g., "shippingAddress.city").
      * @return The found value, or null if the path is invalid or the key doesn't exist.
      */
+    @SuppressWarnings("unchecked")
     private Object getNestedValue(Map<String, Object> map, String nestedKey) {
         String[] parts = nestedKey.split("\\.");
         Object currentValue = map;

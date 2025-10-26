@@ -246,210 +246,282 @@ public class SpringAIService {
 	 * an optional list of structured reasoning steps, and any generated chart data.
 	 */
 	public Mono<ChatWithReasoningResponse> chatWithTools(String baseSystemPrompt, String userPrompt,
-	        String conversationId, boolean includeReasoning, Sinks.Many<SseEvent> statusSink) {
+			String conversationId, boolean includeReasoning, Sinks.Many<SseEvent> statusSink) {
 
-	    // --- 1. Input Validation ---
-	    validateInputs(userPrompt);
+		// --- 1. Input Validation ---
+		validateInputs(userPrompt);
 
-	    // --- 2. Offload Blocking Logic to a Separate Thread ---
-	    // Get the security context to tailor the prompt, then wrap the entire blocking
-	    // ReAct loop in a Mono that runs on a dedicated thread pool (boundedElastic).
-	    return ReactiveSecurityContextHolder.getContext()
-	            .defaultIfEmpty(new org.springframework.security.core.context.SecurityContextImpl())
-	            .flatMap(securityContext -> {
-	                String systemPrompt = buildPromptWithRole(baseSystemPrompt, securityContext.getAuthentication());
-	                
-	                return Mono.fromCallable(() -> {
-	                    log.debug("Processing chat with tools for conversation: {}", conversationId);
-	                    long startTime = System.currentTimeMillis();
+		// --- 2. Offload Blocking Logic to a Separate Thread ---
+		// Get the security context to tailor the prompt, then wrap the entire blocking
+		// ReAct loop in a Mono that runs on a dedicated thread pool (boundedElastic).
+		return ReactiveSecurityContextHolder.getContext()
+				.defaultIfEmpty(new org.springframework.security.core.context.SecurityContextImpl())
+				.flatMap(securityContext -> {
+					String systemPrompt = buildPromptWithRole(baseSystemPrompt, securityContext.getAuthentication());
 
-	                    try {
-	                        // Emit an initial status update to the client.
-	                        statusSink.tryEmitNext(SseEvent.status("Analyzing request and planning steps..."));
+					return Mono.fromCallable(() -> {
+						log.debug("Processing chat with tools for conversation: {}", conversationId);
+						long startTime = System.currentTimeMillis();
 
-	                        // --- 3. Setup for Tool Calling ---
-	                        // Prepare the tool callbacks and manager for manual execution.
-	                        ToolCallback[] toolCallbacks = ToolCallbacks.from(apiActionTools);
-	                        ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
-	                        
-	                        // Configure chat options to disable Spring AI's automatic tool execution,
-	                        // as we are controlling the loop manually.
-	                        ChatOptions chatOptions = ToolCallingChatOptions.builder()
-	                                .toolCallbacks(toolCallbacks)
-	                                .internalToolExecutionEnabled(false) 
-	                                .build();
+						try {
+							// Emit an initial status update to the client.
+							statusSink.tryEmitNext(SseEvent.status("Analyzing request and planning steps..."));
 
-	                        // --- 4. Conversation History Management ---
-	                        // Add the current user message to persistent memory.
-	                        chatMemory.add(conversationId, new UserMessage(userPrompt));
-	                        // Retrieve the full, updated history for this turn.
-	                        List<Message> history = chatMemory.get(conversationId);
+							// --- 3. Setup for Tool Calling ---
+							// Prepare the tool callbacks and manager for manual execution.
+							ToolCallback[] toolCallbacks = ToolCallbacks.from(apiActionTools);
+							ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
 
-	                        // Create a temporary message list for this turn's interaction with the AI.
-	                        List<Message> turnHistory = new ArrayList<>();
-	                        turnHistory.add(new SystemMessage(systemPrompt));
-	                        turnHistory.addAll(history);
+							// Configure chat options to disable Spring AI's automatic tool execution,
+							// as we are controlling the loop manually.
+							ChatOptions chatOptions = ToolCallingChatOptions.builder()
+									.toolCallbacks(toolCallbacks)
+									.internalToolExecutionEnabled(false)
+									.build();
 
-	                        // --- 5. Initialize Loop Variables ---
-	                        ChatResponse chatResponse;
-	                        ChartData capturedChartData = null;
-	                        
-	                        // This list will hold the structured reasoning steps for the frontend.
-	                        List<ReasoningStep> reasoningSteps = new ArrayList<>();
+							// --- 4. Conversation History Management ---
+							// Add the current user message to persistent memory.
+							chatMemory.add(conversationId, new UserMessage(userPrompt));
+							// Retrieve the full, updated history for this turn.
+							List<Message> history = chatMemory.get(conversationId);
 
-	                        // Prepare the context to be passed to the tools, including the SSE sink.
-	                        Map<String, Object> contextMap = new HashMap<>();
-	                        contextMap.put("conversationId", conversationId);
-	                        contextMap.put("sseSink", statusSink);
-	                        ToolContext toolContext = new ToolContext(contextMap);
+							// Create a temporary message list for this turn's interaction with the AI.
+							List<Message> turnHistory = new ArrayList<>();
+							turnHistory.add(new SystemMessage(systemPrompt));
+							turnHistory.addAll(history);
 
-	                        statusSink.tryEmitNext(SseEvent.status("Thinking..."));
+							// --- 5. Initialize Loop Variables ---
+							ChatResponse chatResponse;
+							ChartData capturedChartData = null;
 
-	                        // --- 6. First AI Call ---
-	                        // Make the initial call to the AI model with the system prompt and full history.
-	                        Prompt currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
-	                        chatResponse = chatClient.prompt(currentPrompt)
-	                                .toolContext(toolContext.getContext())
-	                                .call()
-	                                .chatResponse();
+							// This list will hold the structured reasoning steps for the frontend.
+							List<ReasoningStep> reasoningSteps = new ArrayList<>();
 
-	                        // Add the assistant's first response (which might contain tool calls) to the turn's history.
-	                        turnHistory.add(chatResponse.getResult().getOutput());
+							// Prepare the context to be passed to the tools, including the SSE sink.
+							Map<String, Object> contextMap = new HashMap<>();
+							contextMap.put("sseSink", statusSink);
+							ToolContext toolContext = new ToolContext(contextMap);
 
-	                        // --- 7. Main ReAct (Reason-Act) Loop ---
-	                        while (chatResponse.hasToolCalls()) {
-	                            log.debug("AI requested tool execution.");
-	                            AssistantMessage aiMsg = chatResponse.getResult().getOutput();
+							statusSink.tryEmitNext(SseEvent.status("Thinking..."));
 
-	                            // CAPTURE REASONING STEP 1: The AI's thought process.
-	                            if (StringUtils.isNotBlank(aiMsg.getText())) {
-	                                reasoningSteps.add(new ReasoningStep(StepType.THOUGHT, aiMsg.getText()));
-	                            }
+							// --- 6. First AI Call ---
+							// Make the initial call to the AI model with the system prompt and full
+							// history.
+							Prompt currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
+							chatResponse = chatClient.prompt(currentPrompt)
+									.toolContext(toolContext.getContext())
+									.call()
+									.chatResponse();
 
-	                            // CAPTURE REASONING STEP 2: The tool call request.
-	                            List<ToolCallData> pendingToolCalls = new ArrayList<>();
-	                            if (aiMsg.getToolCalls() != null && !aiMsg.getToolCalls().isEmpty()) {
-	                                for (ToolCall toolCall : aiMsg.getToolCalls()) {
-	                                    // Create a record of the tool call with its arguments (the request).
-	                                    pendingToolCalls.add(new ToolCallData(toolCall.name(), toolCall.arguments()));
-	                                }
-	                                reasoningSteps.add(new ReasoningStep(StepType.TOOL_CALL, pendingToolCalls));
-	                            }
-	                            
-	                            // Execute the requested tools.
-	                            
-	                            long startTimeTool = System.currentTimeMillis();
-	                            ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(currentPrompt, chatResponse);
-	                            Message toolResponseMessage = toolExecutionResult.conversationHistory().get(toolExecutionResult.conversationHistory().size() - 1);
-	                            long totalTimeTool = System.currentTimeMillis() - startTimeTool;
-	                            
-	                            statusSink.tryEmitNext(SseEvent.status("Tool execution finished. Analyzing results..."));
-	                            
-	                            // CAPTURE REASONING STEP 3: The tool call response.
-	                            // We now parse the response to set Status and Execution Time correctly.
-	                            if (toolResponseMessage instanceof ToolResponseMessage toolResponseMsg && !pendingToolCalls.isEmpty()) {
-	                                for (ToolResponseMessage.ToolResponse toolResponse : toolResponseMsg.getResponses()) {
-	                                    pendingToolCalls.stream()
-	                                        .filter(call -> call.getToolName().equals(toolResponse.name()) && call.getStatus() == ToolCallStatus.PENDING)
-	                                        .findFirst()
-	                                        .ifPresent(callToUpdate -> {
-	                                            
-	                                            String responseDataJson = toolResponse.responseData();
-	                                            callToUpdate.setResponseDataJson(responseDataJson);
+							// Add the assistant's first response (which might contain tool calls) to the
+							// turn's history.
+							turnHistory.add(chatResponse.getResult().getOutput());
 
-	                                            try {
-	                                                // Try to parse as an ApiCallResponse (from call_api tool)
-	                                                ApiCallResponse apiResponse = objectMapper.readValue(responseDataJson, ApiCallResponse.class);
-	                                                
-	                                                if (apiResponse.isSuccess()) {
-	                                                    callToUpdate.setStatus(ToolCallStatus.SUCCESS);
-	                                                } else {
-	                                                    callToUpdate.setStatus(ToolCallStatus.ERROR);
-	                                                }
-	                                                
-	                                                // We must call getExecutionTimeMs() to match the JSON field "executionTimeMs"
-	                                                callToUpdate.setExecutionTimeMs(apiResponse.getExecutionTimeMs());
-	                                            
-	                                            } catch (Exception e) {
-	                                                // It's not an ApiCallResponse. It's probably a String or ChartData.
-	                                                callToUpdate.setStatus(ToolCallStatus.SUCCESS); // Assume success by default
+							// --- 7. Main ReAct (Reason-Act) Loop ---
+							while (chatResponse.hasToolCalls()) {
+								log.debug("AI requested tool execution.");
+								AssistantMessage aiMsg = chatResponse.getResult().getOutput();
 
-	                                                try {
-	                                                    // Try to parse it as a simple string
-	                                                    String stringValue = objectMapper.readValue(responseDataJson, String.class);
-	                                                    // Check if the tool returned an error string
-	                                                    if (stringValue.startsWith("Error:")) {
-	                                                        callToUpdate.setStatus(ToolCallStatus.ERROR);
-	                                                    }
-	                                                } catch (Exception e2) {
-	                                                    // It's not a string (e.g., it's ChartData JSON object).
-	                                                    // We'll leave the status as SUCCESS.
-	                                                }
-	                                                callToUpdate.setExecutionTimeMs(totalTimeTool);
-	                                            }
-	                                        });
-	                                }
-	                            }
+								// CAPTURE REASONING STEP 1: The AI's thought process.
+								if (StringUtils.isNotBlank(aiMsg.getText())) {
+									reasoningSteps.add(new ReasoningStep(StepType.THOUGHT, aiMsg.getText()));
+								}
 
-	                            // Check if a chart was created by a tool and capture its data.
-	                            if (toolResponseMessage instanceof ToolResponseMessage trm) {
-	                                for (var resp : trm.getResponses()) {
-	                                    if ("create_chart".equals(resp.name())) {
-	                                        try {
-	                                            capturedChartData = objectMapper.readValue(resp.responseData(), ChartData.class);
-	                                            log.info("ChartData object captured successfully!");
-	                                            break;
-	                                        } catch (Exception e) {
-	                                            log.error("Error deserializing ChartData from tool response: {}", resp.responseData(), e);
-	                                        }
-	                                    }
-	                                }
-	                            }
+								// CAPTURE REASONING STEP 2: The tool call request.
+								List<ToolCallData> pendingToolCalls = new ArrayList<>();
+								if (aiMsg.getToolCalls() != null && !aiMsg.getToolCalls().isEmpty()) {
+									for (ToolCall toolCall : aiMsg.getToolCalls()) {
+										// Create a record of the tool call with its arguments (the request).
+										pendingToolCalls.add(new ToolCallData(toolCall.name(), toolCall.arguments()));
+									}
+									reasoningSteps.add(new ReasoningStep(StepType.TOOL_CALL, pendingToolCalls));
+								}
 
-	                            // Add the tool execution results to the turn's history.
-	                            turnHistory.add(toolResponseMessage);
+								// Execute the requested tools.
 
-	                            // --- 8. Next AI Call within the Loop ---
-	                            // Call the AI again with the updated history, including tool results.
-	                            currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
-	                            chatResponse = chatClient.prompt(currentPrompt)
-	                                    .toolContext(toolContext.getContext())
-	                                    .call()
-	                                    .chatResponse();
+								long startTimeTool = System.currentTimeMillis();
+								ToolExecutionResult toolExecutionResult = toolCallingManager
+										.executeToolCalls(currentPrompt, chatResponse);
+								Message originalToolResponseMessage = toolExecutionResult.conversationHistory()
+										.get(toolExecutionResult.conversationHistory().size() - 1);
+								long totalTimeTool = System.currentTimeMillis() - startTimeTool;
 
-	                            // Add the next assistant response to the turn history.
-	                            turnHistory.add(chatResponse.getResult().getOutput());
-	                        }
+								statusSink
+										.tryEmitNext(SseEvent.status("Tool execution finished. Analyzing results..."));
 
-	                        // --- 9. Finalize the Turn ---
-	                        // Once the loop finishes, save the final assistant message to persistent memory.
-	                        chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+								List<ToolResponseMessage.ToolResponse> cleanedResponsesForAI = new ArrayList<>();
+								Message finalMessageForHistory; // This will hold the message added to turnHistory
 
-	                        statusSink.tryEmitNext(SseEvent.status("Formatting final answer..."));
+								// Process the results to update ToolCallData (for frontend) and prepare cleaned
+								// response for AI
+								if (originalToolResponseMessage instanceof ToolResponseMessage toolResponseMsg
+										&& !pendingToolCalls.isEmpty()) {
 
-	                        // CAPTURE REASONING STEP 4: The final natural language response.
-	                        if (StringUtils.isNotBlank(chatResponse.getResult().getOutput().getText())) {
-	                           reasoningSteps.add(new ReasoningStep(StepType.FINAL_RESPONSE, chatResponse.getResult().getOutput().getText()));
-	                        }
-	                        
-	                        // --- 10. Logging and Metrics ---
-	                        long totalTime = System.currentTimeMillis() - startTime;
-	                        log.info("Successfully processed chat with tools for conversation: {} in {}ms", conversationId, totalTime);
-	                        meterRegistry.timer("ai.chat.with.tools.duration", "status", "success").record(totalTime, TimeUnit.MILLISECONDS);
-	                        
-	                        // Return the complete response, including the final AI message and the structured reasoning steps.
-	                        return new ChatWithReasoningResponse(chatResponse, includeReasoning ? reasoningSteps : null, capturedChartData);
+									// Iterate through each tool response returned by the manager
+									for (int i = 0; i < toolResponseMsg.getResponses().size(); i++) {
+										ToolResponseMessage.ToolResponse toolResponse = toolResponseMsg.getResponses()
+												.get(i);
+										// Find the corresponding pending call data based on index or ID/Name if
+										// possible
+										// Assuming order is preserved for simplicity here
+										ToolCallData callToUpdate = pendingToolCalls.get(i);
+										String toolName = callToUpdate.getToolName();
 
-	                    } catch (Exception e) {
-	                        log.error("Error processing chat with tools for conversation {}: {}", conversationId, e.getMessage(), e);
-	                        meterRegistry.timer("ai.chat.with.tools.duration", "status", "error")
-	                                .record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
-	                        statusSink.tryEmitNext(SseEvent.error("An error occurred during tool processing."));
-	                        // Propagate the exception to be handled by the reactive chain's error handling.
-	                        throw new RuntimeException("Failed to process chat request with tools", e);
-	                    }
-	                }).subscribeOn(Schedulers.boundedElastic()); // Ensure the callable runs on the correct thread pool.
-	            });
+										String fullResponseJson = toolResponse.responseData();
+										Object payloadObjectForAI = fullResponseJson; // Default payload is the full
+																						// JSON string
+
+										// 1. Store the FULL JSON in ToolCallData for the frontend modal
+										callToUpdate.setResponseDataJson(fullResponseJson);
+
+										// 2. Try to parse and extract metadata for ToolCallData AND determine clean
+										// payload for AI
+										try {
+											// Attempt to parse as ApiCallResponse (most common for call_api, and now
+											// others too)
+											ApiCallResponse apiResponse = objectMapper.readValue(fullResponseJson,
+													ApiCallResponse.class);
+
+											// Update ToolCallData status and time
+											callToUpdate.setStatus(apiResponse.isSuccess() ? ToolCallStatus.SUCCESS
+													: ToolCallStatus.ERROR);
+											callToUpdate.setExecutionTimeMs(apiResponse.getExecutionTimeMs());
+
+											// Determine the payload FOR THE AI
+											if (apiResponse.isSuccess()) {
+												// For success, check if there's a nested 'response' or 'rawResponse'
+												if (apiResponse.getResponseData() instanceof Map) {
+													Map<?, ?> responseMap = (Map<?, ?>) apiResponse.getResponseData();
+													if (responseMap.containsKey("rawResponse")) {
+														payloadObjectForAI = responseMap.get("rawResponse");
+													} else if (responseMap.containsKey("response")) {
+														payloadObjectForAI = responseMap.get("response");
+													} else {
+														// If no specific field, send the whole responseData map
+														payloadObjectForAI = apiResponse.getResponseData();
+													}
+												} else {
+													// If responseData isn't a map, send it as is
+													payloadObjectForAI = apiResponse.getResponseData();
+												}
+											} else {
+												// For failure, send the structured error or the message
+												if (apiResponse.getResponseData() != null) { // Structured error (e.g.,
+																								// INVALID_PARAMETERS)
+													payloadObjectForAI = apiResponse.getResponseData();
+												} else { // Simple error message
+													payloadObjectForAI = apiResponse.getErrorMessage();
+												}
+											}
+
+										} catch (Exception e) {
+											// Parsing failed - it's likely a simple String result (or maybe ChartData
+											// JSON)
+											callToUpdate.setStatus(ToolCallStatus.SUCCESS); // Assume success if no tool
+																							// exception
+											callToUpdate.setExecutionTimeMs(totalTimeTool); // Use approximate time
+
+											// Try to determine if it's an error string
+											try {
+												String stringValue = objectMapper.readValue(fullResponseJson,
+														String.class);
+												if (stringValue.startsWith("Error:")) {
+													callToUpdate.setStatus(ToolCallStatus.ERROR);
+												}
+												payloadObjectForAI = stringValue; // Payload for AI is the string
+											} catch (Exception e2) {
+												// It's not a String (maybe ChartData?). Keep SUCCESS status.
+												// The payload for AI remains the original fullResponseJson in this edge
+												// case.
+												// We could try parsing as ChartData here if needed.
+												try {
+													// If it's the chart tool, capture chart data separately
+													if ("create_chart".equals(toolName)) {
+														capturedChartData = objectMapper.readValue(fullResponseJson,
+																ChartData.class);
+														payloadObjectForAI = "Chart data generated successfully."; // Simple
+																													// confirmation
+																													// for
+																													// AI
+														log.info("ChartData object captured successfully!");
+													}
+												} catch (Exception e3) {
+													log.warn("Could not parse non-ApiCallResponse tool output: {}",
+															fullResponseJson, e2);
+													payloadObjectForAI = fullResponseJson; // Fallback payload
+												}
+											}
+										}
+
+										// 3. Serialize the CLEAN payload for the AI's next turn
+										String payloadJsonForAI = objectMapper.writeValueAsString(payloadObjectForAI);
+										cleanedResponsesForAI.add(new ToolResponseMessage.ToolResponse(
+												toolResponse.id(), toolName, payloadJsonForAI));
+									}
+
+									// Construct the message containing ONLY the cleaned responses for the next AI
+									// prompt
+									finalMessageForHistory = new ToolResponseMessage(cleanedResponsesForAI);
+
+								} else {
+									// If the response wasn't a ToolResponseMessage or there were no pending calls,
+									// use the original message (should ideally not happen in a valid flow)
+									log.warn(
+											"Unexpected state: Tool response message type mismatch or no pending calls.");
+									finalMessageForHistory = originalToolResponseMessage;
+								}
+
+								// Add the tool execution results to the turn's history.
+								turnHistory.add(finalMessageForHistory);
+
+								// --- 8. Next AI Call within the Loop ---
+								// Call the AI again with the updated history, including tool results.
+								currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
+								chatResponse = chatClient.prompt(currentPrompt)
+										.toolContext(toolContext.getContext())
+										.call()
+										.chatResponse();
+
+								// Add the next assistant response to the turn history.
+								turnHistory.add(chatResponse.getResult().getOutput());
+							}
+
+							// --- 9. Finalize the Turn ---
+							// Once the loop finishes, save the final assistant message to persistent
+							// memory.
+							chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+
+							statusSink.tryEmitNext(SseEvent.status("Formatting final answer..."));
+
+							// CAPTURE REASONING STEP 4: The final natural language response.
+							if (StringUtils.isNotBlank(chatResponse.getResult().getOutput().getText())) {
+								reasoningSteps.add(new ReasoningStep(StepType.FINAL_RESPONSE,
+										chatResponse.getResult().getOutput().getText()));
+							}
+
+							// --- 10. Logging and Metrics ---
+							long totalTime = System.currentTimeMillis() - startTime;
+							log.info("Successfully processed chat with tools for conversation: {} in {}ms",
+									conversationId, totalTime);
+							meterRegistry.timer("ai.chat.with.tools.duration", "status", "success").record(totalTime,
+									TimeUnit.MILLISECONDS);
+
+							// Return the complete response, including the final AI message and the
+							// structured reasoning steps.
+							return new ChatWithReasoningResponse(chatResponse, includeReasoning ? reasoningSteps : null,
+									capturedChartData);
+
+						} catch (Exception e) {
+							log.error("Error processing chat with tools for conversation {}: {}", conversationId,
+									e.getMessage(), e);
+							meterRegistry.timer("ai.chat.with.tools.duration", "status", "error")
+									.record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
+							statusSink.tryEmitNext(SseEvent.error("An error occurred during tool processing."));
+							// Propagate the exception to be handled by the reactive chain's error handling.
+							throw new RuntimeException("Failed to process chat request with tools", e);
+						}
+					}).subscribeOn(Schedulers.boundedElastic()); // Ensure the callable runs on the correct thread pool.
+				});
 	}
 
 	/**
