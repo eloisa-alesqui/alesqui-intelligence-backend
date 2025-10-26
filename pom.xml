@@ -14,10 +14,10 @@
 	<name>Alesqui Intelligence</name>
 	<description>Enterprise Self-Hosted AI API Assistant</description>
 	<properties>
-		<java.version>17</java.version>
+		<java.version>21</java.version>
 		<spring-ai.version>1.0.3</spring-ai.version>
-		<maven.compiler.source>17</maven.compiler.source>
-		<maven.compiler.target>17</maven.compiler.target>
+		<maven.compiler.source>21</maven.compiler.source>
+		<maven.compiler.target>21</maven.compiler.target>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<!-- Testing versions -->
 		<testcontainers.version>1.19.3</testcontainers.version>

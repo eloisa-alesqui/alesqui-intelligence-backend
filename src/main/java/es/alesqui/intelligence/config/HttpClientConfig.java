@@ -33,29 +33,31 @@ public class HttpClientConfig {
     @Autowired
     private RequestInterceptor requestInterceptor;
 
-    @Value("${proxy.host}")
+    @Value("${proxy.host:#{null}}")
     private String proxyHost;
     
-    @Value("${proxy.port}")
-    private int proxyPort;
+    @Value("${proxy.port:#{null}}")
+    private Integer proxyPort;
 
     /**
-     * Creates and configures a RestClient bean with proxy support.
-     * This remains unchanged.
+     * Creates and configures a RestClient bean with optional proxy support.
      *
      * @return a configured RestClient instance.
      */
     @Bean
     public RestClient restClient() {
-        Proxy proxy = new Proxy(Proxy.Type.HTTP, 
-            new InetSocketAddress(proxyHost, proxyPort));
-        
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setProxy(proxy);
         factory.setConnectTimeout(Duration.ofSeconds(30));
         factory.setReadTimeout(Duration.ofSeconds(120));
         
-        log.info("✅ RestClient configured with proxy: {}:{}", proxyHost, proxyPort);
+        if (proxyHost != null && !proxyHost.isBlank() && proxyPort != null && proxyPort > 0) {
+            Proxy proxy = new Proxy(Proxy.Type.HTTP, 
+                new InetSocketAddress(proxyHost, proxyPort));
+            factory.setProxy(proxy);
+            log.info("✅ RestClient configured with proxy: {}:{}", proxyHost, proxyPort);
+        } else {
+            log.info("✅ RestClient configured without proxy");
+        }
         
         return RestClient.builder()
                 .requestFactory(factory)
@@ -64,28 +66,32 @@ public class HttpClientConfig {
     }
     
     /**
-     * Creates a pre-configured, primary WebClient.Builder bean with proxy support.
+     * Creates a pre-configured, primary WebClient.Builder bean with optional proxy support.
      * By marking this bean with @Primary, we instruct Spring to use this builder as the
      * default choice across the application, resolving autoconfiguration conflicts.
      *
-     * @return a configured WebClient.Builder instance with proxy support and logging.
+     * @return a configured WebClient.Builder instance with optional proxy support and logging.
      */
     @Bean
     @Primary
     public WebClient.Builder webClientBuilder() {
-        // 1. Configure the underlying HttpClient with proxy settings
+        // 1. Configure the underlying HttpClient with optional proxy settings
         HttpClient httpClient = HttpClient.create()
-            .proxy(proxySpec -> proxySpec
+            .responseTimeout(Duration.ofSeconds(120)); // Default response timeout
+        
+        if (proxyHost != null && !proxyHost.isBlank() && proxyPort != null && proxyPort > 0) {
+            httpClient = httpClient.proxy(proxySpec -> proxySpec
                 .type(ProxyProvider.Proxy.HTTP)
                 .host(proxyHost)
                 .port(proxyPort)
-                .nonProxyHosts("localhost|127.0.0.1"))
-            .responseTimeout(Duration.ofSeconds(120)); // Default response timeout
+                .nonProxyHosts("localhost|127.0.0.1"));
+            log.info("✅ WebClient.Builder is now configured to use proxy: {}:{}", proxyHost, proxyPort);
+        } else {
+            log.info("✅ WebClient.Builder configured without proxy");
+        }
         
         // 2. Create a connector with the configured HttpClient
         ReactorClientHttpConnector connector = new ReactorClientHttpConnector(httpClient);
-        
-        log.info("✅ WebClient.Builder is now configured to use proxy: {}:{}", proxyHost, proxyPort);
 
         // 3. Return a WebClient.Builder pre-configured with the connector and filters
         return WebClient.builder()

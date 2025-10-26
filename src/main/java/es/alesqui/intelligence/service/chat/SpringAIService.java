@@ -1,18 +1,23 @@
 package es.alesqui.intelligence.service.chat;
 
-import io.micrometer.core.instrument.MeterRegistry;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.AssistantMessage.ToolCall;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.AssistantMessage.ToolCall;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.chat.prompt.ChatOptions;
@@ -40,13 +45,12 @@ import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatWithReasoningResponse;
 import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.service.chat.tools.ApiActionTools;
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
-
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * Service for managing interactions with an AI chat model. Provides
@@ -322,9 +326,21 @@ public class SpringAIService {
 								log.debug("AI requested tool execution.");
 								AssistantMessage aiMsg = chatResponse.getResult().getOutput();
 
-								// CAPTURE REASONING STEP 1: The AI's thought process.
-								if (StringUtils.isNotBlank(aiMsg.getText())) {
-									reasoningSteps.add(new ReasoningStep(StepType.THOUGHT, aiMsg.getText()));
+								// CAPTURE REASONING STEP 1: The AI's brief plan (fallback if model omits text)
+								String planText = StringUtils.trimToEmpty(aiMsg.getText());
+								if (StringUtils.isBlank(planText) && aiMsg.getToolCalls() != null
+										&& !aiMsg.getToolCalls().isEmpty()) {
+									// Model emitted only tool calls without a textual preamble. Synthesize a concise plan.
+									String toolNames = aiMsg.getToolCalls().stream()
+											.map(ToolCall::name)
+											.filter(Objects::nonNull)
+											.distinct()
+											.collect(Collectors.joining(", "));
+									planText = "Plan: I'll call " + toolNames
+											+ " to gather the necessary data, then answer concisely.";
+								}
+								if (StringUtils.isNotBlank(planText)) {
+									reasoningSteps.add(new ReasoningStep(StepType.THOUGHT, planText));
 								}
 
 								// CAPTURE REASONING STEP 2: The tool call request.
@@ -562,7 +578,7 @@ public class SpringAIService {
 				narrative.append("Step ").append(stepCounter++).append(" - Assistant's Turn\n");
 
 				if (StringUtils.isNotBlank(aiMsg.getText())) {
-					narrative.append("Thought: ").append(aiMsg.getText()).append("\n");
+					narrative.append("Plan: ").append(aiMsg.getText()).append("\n");
 				}
 
 				if (aiMsg.getToolCalls() != null && !aiMsg.getToolCalls().isEmpty()) {

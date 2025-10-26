@@ -1,9 +1,5 @@
 package es.alesqui.intelligence.config.security;
 
-import es.alesqui.intelligence.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import reactor.core.publisher.Mono;
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
@@ -14,6 +10,11 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import es.alesqui.intelligence.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Mono;
+
 /**
  * Configuration class for application-level beans, primarily for security.
  *
@@ -23,6 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  */
 @Configuration
 @RequiredArgsConstructor
+@Slf4j
 public class AuthenticationConfig {
 
     private final UserRepository userRepository;
@@ -39,8 +41,13 @@ public class AuthenticationConfig {
     @Bean
     public ReactiveUserDetailsService userDetailsService() {
         return username -> userRepository.findByUsername(username)
-        		.cast(UserDetails.class)
-                .switchIfEmpty(Mono.error(new UsernameNotFoundException("User not found: " + username)));
+                .doOnSubscribe(sub -> log.debug("[Auth] Looking up user '{}'", username))
+                .doOnNext(u -> log.debug("[Auth] User '{}' found", u.getUsername()))
+                .switchIfEmpty(Mono.defer(() -> {
+                    log.debug("[Auth] User '{}' not found", username);
+                    return Mono.error(new UsernameNotFoundException("User not found: " + username));
+                }))
+                .cast(UserDetails.class);
     }
 
     /**

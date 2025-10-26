@@ -1,15 +1,19 @@
 package es.alesqui.intelligence.service.chat;
 
-import lombok.extern.slf4j.Slf4j;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.concurrent.TimeoutException;
 
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
-import reactor.core.scheduler.Schedulers;
+
 import es.alesqui.intelligence.config.ChatConfig;
 import es.alesqui.intelligence.dto.chat.reasoning.ReasoningStep;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
@@ -19,15 +23,11 @@ import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.conversation.ChatMemoryService;
 import es.alesqui.intelligence.service.conversation.ConversationService;
-
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.concurrent.TimeoutException;
+import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Asynchronous orchestration service implementing the ReAct pattern for chat-based API interactions.
@@ -43,6 +43,7 @@ public class ChatOrchestrationService {
     private final ChatMemoryService chatMemoryService;
     private final ChatMemory chatMemory;
     private final String systemPromptTemplate;
+    private final Resource promptResource;
     
     public ChatOrchestrationService(
             SpringAIService springAIService,
@@ -58,6 +59,7 @@ public class ChatOrchestrationService {
         this.chatMemoryService = chatMemoryService;
         this.chatMemory = chatMemory;
 
+        this.promptResource = promptResource;
         try {
             this.systemPromptTemplate = promptResource.getContentAsString(StandardCharsets.UTF_8);
             log.info("✅ Chat Orchestration system prompt loaded successfully.");
@@ -210,7 +212,8 @@ public class ChatOrchestrationService {
         // Get the current date and format it.
         String currentDate = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE); // e.g., "2025-10-12"
         
-        String systemPrompt = systemPromptTemplate.replace("{currentDate}", currentDate);
+    String template = loadSystemPromptTemplate();
+    String systemPrompt = template.replace("{currentDate}", currentDate);
      
         return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning(), sink)
             .timeout(chatConfig.getToolsTimeout())
@@ -249,6 +252,19 @@ public class ChatOrchestrationService {
                         .processingTimeMs(processingTime)
                         .build();
             });
+    }
+
+    /**
+     * Loads the system prompt template from the classpath resource on each request.
+     * Falls back to the template loaded at startup if reloading fails.
+     */
+    private String loadSystemPromptTemplate() {
+        try {
+            return promptResource.getContentAsString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.debug("Using cached system prompt template due to reload error: {}", e.getMessage());
+            return systemPromptTemplate;
+        }
     }
     
     /**

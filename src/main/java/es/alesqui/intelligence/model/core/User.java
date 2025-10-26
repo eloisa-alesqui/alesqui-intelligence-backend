@@ -1,10 +1,10 @@
 package es.alesqui.intelligence.model.core;
 
-import es.alesqui.intelligence.model.core.enums.Role;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -12,10 +12,11 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.stream.Collectors;
+import es.alesqui.intelligence.model.core.enums.Role;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * Represents a user account in the Alesqui Intelligence application.
@@ -73,9 +74,9 @@ public class User implements UserDetails {
         if (roles == null) {
             return Set.of();
         }
-        return roles.stream()
-                .map(role -> new SimpleGrantedAuthority(role.name()))
-                .collect(Collectors.toList());
+    return roles.stream()
+        .map(role -> new SimpleGrantedAuthority(role.name()))
+        .collect(Collectors.toList());
     }
 
     /**

@@ -1,0 +1,10 @@
+/target
+/logs
+/temp-files
+/.idea
+/.vscode
+*.iml
+.git
+.gitignore
+.DS_Store
+Thumbs.db
