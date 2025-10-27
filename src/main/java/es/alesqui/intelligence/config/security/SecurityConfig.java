@@ -1,9 +1,5 @@
 package es.alesqui.intelligence.config.security;
 
-import es.alesqui.intelligence.security.JwtAuthenticationWebFilter;
-import lombok.RequiredArgsConstructor;
-import reactor.core.publisher.Mono;
-
 import java.util.List;
 
 import org.springframework.context.annotation.Bean;
@@ -19,6 +15,10 @@ import org.springframework.security.web.server.context.NoOpServerSecurityContext
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
+
+import es.alesqui.intelligence.security.JwtAuthenticationWebFilter;
+import lombok.RequiredArgsConstructor;
+import reactor.core.publisher.Mono;
 
 /**
  * Main security configuration
@@ -65,6 +65,8 @@ public class SecurityConfig {
             .authorizeExchange(exchanges -> exchanges
                 .pathMatchers("/api/auth/**").permitAll() // Public auth endpoints
                 .pathMatchers("/api/test/**").permitAll()
+                // Allow health/info for platform health checks (Render)
+                .pathMatchers("/actuator/health", "/actuator/info").permitAll()
                 .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 
                 .pathMatchers(HttpMethod.GET, "/api/swagger/**").hasRole("IT") 
