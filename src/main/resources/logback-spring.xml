@@ -299,10 +299,6 @@
 	<logger name="org.mongodb.driver.protocol.query" level="WARN" />
 	<logger name="org.mongodb.driver.protocol.update" level="WARN" />
 
-	<!-- Redis -->
-	<logger name="io.lettuce.core" level="WARN" />
-	<logger name="org.springframework.data.redis" level="WARN" />
-
 	<!-- Reactor Netty -->
 	<logger name="reactor.netty" level="WARN" />
 	<logger name="reactor.netty.http.server" level="WARN" />
