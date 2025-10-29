@@ -44,7 +44,11 @@ import es.alesqui.intelligence.dto.chat.response.ApiCallResponse;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatWithReasoningResponse;
 import es.alesqui.intelligence.dto.chat.response.SseEvent;
-import es.alesqui.intelligence.service.chat.tools.ApiActionTools;
+import es.alesqui.intelligence.service.chat.tools.ApiDiscoveryTools;
+import es.alesqui.intelligence.service.chat.tools.ApiInvocationTools;
+import es.alesqui.intelligence.service.chat.tools.ChartTools;
+import es.alesqui.intelligence.service.chat.tools.DataTools;
+import es.alesqui.intelligence.service.chat.tools.ExportTools;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,8 +67,11 @@ import reactor.core.scheduler.Schedulers;
 public class SpringAIService {
 
 	private final ChatClient chatClient;
-	private final ApiActionTools apiActionTools;
-	private final ReasoningFormatterService reasoningFormatterService;
+	private final ApiDiscoveryTools apiDiscoveryTools;
+	private final ApiInvocationTools apiInvocationTools;
+	private final DataTools dataTools;
+	private final ExportTools exportTools;
+	private final ChartTools chartTools;
 	private final ChatMemory chatMemory;
 	private final MeterRegistry meterRegistry;
 	private final ObjectMapper objectMapper;
@@ -273,7 +280,13 @@ public class SpringAIService {
 
 							// --- 3. Setup for Tool Calling ---
 							// Prepare the tool callbacks and manager for manual execution.
-							ToolCallback[] toolCallbacks = ToolCallbacks.from(apiActionTools);
+							ToolCallback[] toolCallbacks = ToolCallbacks.from(
+								apiDiscoveryTools,
+								apiInvocationTools,
+								dataTools,
+								exportTools,
+								chartTools
+							);
 							ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
 
 							// Configure chat options to disable Spring AI's automatic tool execution,
@@ -553,62 +566,25 @@ public class SpringAIService {
 	}
 
 	/**
-	 * Generates a simple, unformatted reasoning narrative from a list of
-	 * conversation messages. This raw text is intended to be processed by the
-	 * ReasoningFormatterService to apply the final visual styling.
+	 * Builds a role-aware system prompt by prepending a concise persona instruction
+	 * derived from the user's authorities.
 	 *
-	 * @param messages The list of messages from the conversation history.
-	 * @return A raw string detailing the AI's reasoning process.
+	 * Behavior:
+	 * - If authentication is null or unauthenticated, returns the basePrompt unchanged.
+	 * - If the user has ROLE_IT, prepends instructions tailored to a technical audience.
+	 * - If the user has ROLE_BUSINESS, prepends instructions tailored to a non-technical audience.
+	 * - If no recognized role is present, returns the basePrompt unchanged.
+	 *
+	 * The final prompt format when a persona is applied is:
+	 * personaInstruction + "\n\n---\n\n" + basePrompt
+	 *
+	 * This method has no side effects and is thread-safe.
+	 *
+	 * @param basePrompt      The original system prompt to use as the core instruction.
+	 * @param authentication  The Spring Security authentication from which roles are derived.
+	 * @return The basePrompt optionally prefixed with a role-specific persona instruction.
 	 */
-	private String generateReasoningNarrative(List<Message> messages) {
-		if (messages == null || messages.isEmpty()) {
-			return "No messages were available to generate a reasoning narrative.";
-		}
-		StringBuilder narrative = new StringBuilder();
-		int stepCounter = 1;
-
-		// Generate a very plain text, without Markdown, for the formatter to process.
-
-		for (Message message : messages) {
-			if (message instanceof SystemMessage sysMsg) {
-				// We can skip the system message in the raw narrative for brevity.
-			} else if (message instanceof UserMessage userMsg) {
-				narrative.append("User question:\n").append(userMsg.getText()).append("\n\n");
-			} else if (message instanceof AssistantMessage aiMsg) {
-				narrative.append("Step ").append(stepCounter++).append(" - Assistant's Turn\n");
-
-				if (StringUtils.isNotBlank(aiMsg.getText())) {
-					narrative.append("Plan: ").append(aiMsg.getText()).append("\n");
-				}
-
-				if (aiMsg.getToolCalls() != null && !aiMsg.getToolCalls().isEmpty()) {
-					narrative.append("Action: Calling tools...\n");
-					for (ToolCall toolCall : aiMsg.getToolCalls()) {
-						narrative.append("Tool: ").append(toolCall.name()).append("\nArguments: ")
-								.append(toolCall.arguments()).append("\n");
-					}
-				}
-				narrative.append("\n");
-			} else if (message instanceof ToolResponseMessage toolMsg) {
-				narrative.append("Step ").append(stepCounter++).append(" - Tool Execution Results\n");
-				if (toolMsg.getResponses() != null && !toolMsg.getResponses().isEmpty()) {
-					for (ToolResponseMessage.ToolResponse response : toolMsg.getResponses()) {
-						String responseData = response.responseData();
-						narrative.append("Observation from ").append(response.name()).append(":\n").append("Result: ")
-								.append(responseData).append("\n");
-					}
-				}
-				narrative.append("\n");
-			}
-		}
-		return narrative.toString();
-	}
-	
-	/**
-     * Construye el prompt del sistema final añadiendo instrucciones de personalidad
-     * basadas en los roles del usuario.
-     */
-    private String buildPromptWithRole(String basePrompt, Authentication authentication) {
+	private String buildPromptWithRole(String basePrompt, Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
             return basePrompt;
         }
