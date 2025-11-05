@@ -274,6 +274,10 @@ public class SpringAIService {
 						log.debug("Processing chat with tools for conversation: {}", conversationId);
 						long startTime = System.currentTimeMillis();
 
+						// Capture reasoning and chart across success and failure paths
+						List<ReasoningStep> reasoningSteps = new ArrayList<>();
+						ChartData capturedChartData = null;
+
 						try {
 							// Emit an initial status update to the client.
 							statusSink.tryEmitNext(SseEvent.status("Analyzing request and planning steps..."));
@@ -309,10 +313,6 @@ public class SpringAIService {
 
 							// --- 5. Initialize Loop Variables ---
 							ChatResponse chatResponse;
-							ChartData capturedChartData = null;
-
-							// This list will hold the structured reasoning steps for the frontend.
-							List<ReasoningStep> reasoningSteps = new ArrayList<>();
 
 							// Prepare the context to be passed to the tools, including the SSE sink.
 							Map<String, Object> contextMap = new HashMap<>();
@@ -537,8 +537,8 @@ public class SpringAIService {
 
 							// Return the complete response, including the final AI message and the
 							// structured reasoning steps.
-							return new ChatWithReasoningResponse(chatResponse, includeReasoning ? reasoningSteps : null,
-									capturedChartData);
+			    return new ChatWithReasoningResponse(chatResponse, includeReasoning ? reasoningSteps : null,
+				    capturedChartData);
 
 						} catch (Exception e) {
 							log.error("Error processing chat with tools for conversation {}: {}", conversationId,
@@ -546,8 +546,15 @@ public class SpringAIService {
 							meterRegistry.timer("ai.chat.with.tools.duration", "status", "error")
 									.record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
 							statusSink.tryEmitNext(SseEvent.error("An error occurred during tool processing."));
-							// Propagate the exception to be handled by the reactive chain's error handling.
-							throw new RuntimeException("Failed to process chat request with tools", e);
+			    // Build a graceful fallback response including any captured reasoning.
+			    String fallbackMessage = "Sorry, an error occurred: " + e.getMessage();
+			    if (includeReasoning) {
+				reasoningSteps.add(new ReasoningStep(StepType.FINAL_RESPONSE, fallbackMessage));
+			    }
+			    ChatWithReasoningResponse response = new ChatWithReasoningResponse(null,
+				    includeReasoning ? reasoningSteps : null, capturedChartData);
+			    response.setFallbackContent(fallbackMessage);
+			    return response;
 						}
 					}).subscribeOn(Schedulers.boundedElastic()); // Ensure the callable runs on the correct thread pool.
 				});

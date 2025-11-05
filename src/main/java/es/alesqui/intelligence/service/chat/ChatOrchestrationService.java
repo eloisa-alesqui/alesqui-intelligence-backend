@@ -19,6 +19,7 @@ import es.alesqui.intelligence.dto.chat.reasoning.ReasoningStep;
 import es.alesqui.intelligence.dto.chat.request.ChatRequest;
 import es.alesqui.intelligence.dto.chat.response.ChartData;
 import es.alesqui.intelligence.dto.chat.response.ChatResponse;
+import es.alesqui.intelligence.dto.chat.response.ChatWithReasoningResponse;
 import es.alesqui.intelligence.dto.chat.response.SseEvent;
 import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.conversation.ChatMemoryService;
@@ -220,16 +221,20 @@ public class ChatOrchestrationService {
             .onErrorResume(TimeoutException.class, error -> {
                 log.warn("⏱️ Request timeout after {} ms for query: '{}'", 
                     chatConfig.getToolsTimeout().toMillis(), request.getQuery());
-                
-                // Return a user-friendly error response
-                return Mono.error(new RuntimeException(
-                    "The query is taking longer than expected. " +
-                    "Please try rephrasing your question or make it more specific."
-                ));
+                // Return a user-friendly fallback ChatWithReasoningResponse so the pipeline stays typed.
+                String msg = "The query is taking longer than expected. Please try rephrasing your question or make it more specific.";
+                ChatWithReasoningResponse fallback = new ChatWithReasoningResponse(null, null, null);
+                fallback.setFallbackContent(msg);
+                return Mono.just(fallback);
             })
             .map(chatWithReasoningResponse -> {
-                // Extract the final text content from the raw Spring AI response
-                String responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
+                // Extract the final text content: prefer low-level response, otherwise fallback
+                String responseContent;
+                if (chatWithReasoningResponse.getChatResponse() != null) {
+                    responseContent = chatWithReasoningResponse.getChatResponse().getResult().getOutput().getText();
+                } else {
+                    responseContent = chatWithReasoningResponse.getFallbackContent();
+                }
                 
                 List<ReasoningStep> reasoningSteps = null;
                 if (request.isIncludeReasoning()) {

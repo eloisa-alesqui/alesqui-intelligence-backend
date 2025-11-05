@@ -37,6 +37,14 @@ public class ChatWithReasoningResponse {
     private ChartData chart;
 
     /**
+     * Optional plain-text content to use when the low-level Spring AI ChatResponse
+     * is not available due to an error or early termination. This allows the
+     * frontend to still display a user-friendly message alongside the
+     * reasoning steps that were captured up to the point of failure.
+     */
+    private String fallbackContent;
+
+    /**
      * Constructs a new ChatWithReasoningResponse.
      *
      * @param chatResponse   The final ChatResponse from the AI model.
