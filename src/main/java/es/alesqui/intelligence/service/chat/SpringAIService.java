@@ -312,7 +312,7 @@ public class SpringAIService {
 							turnHistory.addAll(history);
 
 							// --- 5. Initialize Loop Variables ---
-							ChatResponse chatResponse;
+										ChatResponse chatResponse;
 
 							// Prepare the context to be passed to the tools, including the SSE sink.
 							Map<String, Object> contextMap = new HashMap<>();
@@ -331,9 +331,25 @@ public class SpringAIService {
 									.call()
 									.chatResponse();
 
-							// Add the assistant's first response (which might contain tool calls) to the
-							// turn's history.
+							// Validate response and add assistant message to turn history
+							chatResponse = ensureChatResponse(chatResponse, "initial call");
 							turnHistory.add(chatResponse.getResult().getOutput());
+
+							// If the model wrote an Act in text but did not emit a tool call, nudge once to produce the tool call.
+							if (!chatResponse.hasToolCalls()) {
+								String txt = StringUtils.defaultIfEmpty(chatResponse.getResult().getOutput().getText(), "");
+								if (txt.contains("Act:") || txt.matches("(?s).*(?i)call `.+`.*")) {
+									statusSink.tryEmitNext(SseEvent.status("Awaiting tool call; asking the model to emit it now..."));
+									turnHistory.add(new SystemMessage("You indicated an Act step. Emit the tool call now using one of the registered tools. Do not include any other text. One tool call only."));
+									currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
+									chatResponse = chatClient.prompt(currentPrompt)
+											.toolContext(toolContext.getContext())
+											.call()
+											.chatResponse();
+									chatResponse = ensureChatResponse(chatResponse, "nudge tool call");
+									turnHistory.add(chatResponse.getResult().getOutput());
+								}
+							}
 
 							// --- 7. Main ReAct (Reason-Act) Loop ---
 							while (chatResponse.hasToolCalls()) {
@@ -511,6 +527,7 @@ public class SpringAIService {
 										.toolContext(toolContext.getContext())
 										.call()
 										.chatResponse();
+								chatResponse = ensureChatResponse(chatResponse, "loop next call");
 
 								// Add the next assistant response to the turn history.
 								turnHistory.add(chatResponse.getResult().getOutput());
@@ -571,6 +588,18 @@ public class SpringAIService {
 		// Use the same reactive pattern for consistency.
 		return chatClient.prompt().user("Say 'Connection test successful'").stream().content()
 				.collect(Collectors.joining());
+	}
+
+	/**
+	 * Ensures the AI model returned a complete response structure.
+	 * Throws an IllegalStateException if any critical field is null.
+	 * This helps keep the main loop free from repetitive null checks.
+	 */
+	private ChatResponse ensureChatResponse(ChatResponse response, String stage) {
+		Objects.requireNonNull(response, "AI returned null ChatResponse at " + stage);
+		Objects.requireNonNull(response.getResult(), "AI returned null result at " + stage);
+		Objects.requireNonNull(response.getResult().getOutput(), "AI returned null output at " + stage);
+		return response;
 	}
 
 	/**

@@ -34,6 +34,7 @@ You MUST follow this strict, turn-by-turn process while NEVER revealing hidden c
     * Do NOT describe internal deliberations; focus on the goal and the next observable action.
 2.  **Act (Tool Call):** Immediately after the Plan, you MAY call **one single tool**.
     * Call **at most one** tool per turn.
+    * Only include the "Act" section if you are actually emitting a real tool call; otherwise, omit the Act and end your turn after the Plan.
     * If no tool is needed (e.g., you can answer directly), omit this Act step.
 3.  **Stop:** Your turn ENDS after the Plan (if no tool is called) or after the single tool call. Await the "Observation" (tool result) before proceeding.
 
