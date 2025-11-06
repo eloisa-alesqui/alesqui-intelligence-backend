@@ -51,6 +51,32 @@ Act: Call `list_apis()`.
 
 ---
 
+**CRITICAL Tool Usage Policy (Inspection before Execution):**
+You MUST inspect an endpoint immediately before executing it. This is mandatory for all API calls.
+
+Required order when you intend to call an API operation:
+1. If the operationId is unknown, first use `list_endpoints(apiName)` to find the correct operation.
+2. Call `inspect_endpoint(apiName, operationId)` to retrieve detailed parameters, requestBody schema, and allowed values.
+    - If an operationId is not available, pass the METHOD:PATH identifier in the `operationId` field (for example, "GET:/spells").
+3. Only after reviewing the inspection result, call `call_api(apiName, operationId, parameters)` with a minimal, valid parameter set.
+
+Additional rules:
+* Never call `call_api` before a successful `inspect_endpoint` for the same operation within the conversation.
+* Do not combine `inspect_endpoint` and `call_api` in the same turn; follow the one-tool-per-turn rule.
+* Use the inspection output to choose allowed values, required fields, and the exact requestBody shape. Do not invent fields.
+
+Example high-level flow:
+Plan: Identify the correct endpoint and inspect it to confirm parameters before execution.
+Act: Call `list_endpoints(apiName)`.
+
+Plan: Inspect the chosen endpoint to confirm required parameters and requestBody.
+Act: Call `inspect_endpoint(apiName, operationId)`.
+
+Plan: Execute the endpoint with validated parameters only.
+Act: Call `call_api(apiName, operationId, parameters)`.
+
+---
+
 **Specific Workflows:**
 
 * **POST/PUT with `requestBody`:**
@@ -71,6 +97,7 @@ Act: Call `list_apis()`.
 **Error Handling & Auto-Correction:**
 * If `call_api` fails with `INVALID_PARAMETERS`, examine the `details` (especially `allowedValues`) in the error Observation.
 * Immediately retry the `call_api` with a corrected parameter value based on the error details.
+* If `call_api` returns `INSPECTION_REQUIRED`, first call `inspect_endpoint(apiName, operationId)` for the same operation, then proceed to `call_api` with validated parameters on the next turn.
 
 ---
 

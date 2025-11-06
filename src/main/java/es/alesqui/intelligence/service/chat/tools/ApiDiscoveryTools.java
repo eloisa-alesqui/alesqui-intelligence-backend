@@ -48,6 +48,7 @@ public class ApiDiscoveryTools {
 
     private final UnifiedApiService unifiedApiService;
     private final ObjectMapper objectMapper;
+    private final es.alesqui.intelligence.service.chat.tools.support.InspectionPolicyService inspectionPolicy;
 
     /**
      * Lists all active APIs with basic metadata to help choose a target system.
@@ -202,6 +203,17 @@ public class ApiDiscoveryTools {
 
             sb.append("### Responses\n");
             sb.append(formatResponsesForLLM(api, endpoint.getResponses(), objectMapper)).append("\n");
+
+            // Record inspection for policy enforcement (per conversation)
+            try {
+                String conversationId = toolContext != null && toolContext.getContext() != null
+                        ? (String) toolContext.getContext().get("conversationId")
+                        : null;
+                String opKey = getOperationIdOrDefault(endpoint);
+                inspectionPolicy.recordInspection(conversationId, api.getName(), opKey);
+            } catch (Exception ignore) {
+                // non-fatal; best-effort tracking only
+            }
 
             if (sink != null) sink.tryEmitNext(SseEvent.status("Endpoint details assembled."));
             return sb.toString();

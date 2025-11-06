@@ -55,6 +55,7 @@ public class ApiInvocationTools {
     private final UnifiedApiService unifiedApiService;
     private final ApiExecutionService apiExecutionService;
     private final ObjectMapper objectMapper;
+    private final es.alesqui.intelligence.service.chat.tools.support.InspectionPolicyService inspectionPolicy;
 
     /**
      * Calls a specific API endpoint with the provided parameters.
@@ -118,6 +119,16 @@ public class ApiInvocationTools {
 
             if (endpoint == null) {
                 throw new ApiExecutionException("No endpoint found with operation ID '" + operationId + "' in API '" + apiName + "'");
+            }
+
+            // Enforce inspect-before-execute policy
+            String conversationId = toolContext != null && toolContext.getContext() != null
+                    ? (String) toolContext.getContext().get("conversationId")
+                    : null;
+            String opKey = getOperationIdOrDefault(endpoint);
+            if (!inspectionPolicy.wasInspectedRecently(conversationId, api.getName(), opKey, Duration.ofMinutes(10))) {
+                if (sink != null) sink.tryEmitNext(SseEvent.status("Inspection required before calling this endpoint."));
+                return createInspectionRequiredResponse(api.getName(), opKey);
             }
 
             Map<String, Object> paramMap = parseParameters(parameters);
@@ -285,5 +296,25 @@ public class ApiInvocationTools {
         return ApiCallResponse.failure(errorBuilder.build(), statusCode)
                 .withApiDetails(apiName, operationId)
                 .withExecutionTime(0L);
+    }
+
+    /**
+     * Creates a structured response indicating that the model must call
+     * inspect_endpoint before executing this operation.
+     */
+    private ApiCallResponse createInspectionRequiredResponse(String apiName, String operationId) {
+    StructuredApiError error = StructuredApiError.builder()
+        .errorType("INSPECTION_REQUIRED")
+        .message("You must call inspect_endpoint for this operation before calling call_api.")
+        .details(Map.of(
+            "nextTool", "inspect_endpoint",
+            "apiName", apiName,
+            "operationId", operationId,
+            "reason", "Policy requires inspecting parameters and requestBody just before execution."
+        ))
+        .build();
+    return ApiCallResponse.failure(error, 428)
+        .withApiDetails(apiName, operationId)
+        .withExecutionTime(0L);
     }
 }

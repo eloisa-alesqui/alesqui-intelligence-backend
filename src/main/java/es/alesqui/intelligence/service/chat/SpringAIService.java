@@ -317,6 +317,7 @@ public class SpringAIService {
 							// Prepare the context to be passed to the tools, including the SSE sink.
 							Map<String, Object> contextMap = new HashMap<>();
 							contextMap.put("sseSink", statusSink);
+							contextMap.put("conversationId", conversationId);
 							ToolContext toolContext = new ToolContext(contextMap);
 
 							statusSink.tryEmitNext(SseEvent.status("Thinking..."));
