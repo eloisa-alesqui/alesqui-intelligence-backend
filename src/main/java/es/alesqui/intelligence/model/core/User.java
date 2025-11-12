@@ -1,5 +1,6 @@
 package es.alesqui.intelligence.model.core;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
@@ -58,6 +59,11 @@ public class User implements UserDetails {
      */
     @Builder.Default // Ensures the field is initialized even when using the builder
     private Set<Role> roles = new HashSet<>();
+
+    /**
+     * Creation timestamp for auditing. Records when the user account was created.
+     */
+    private Instant createdAt;
 
 
     // --- UserDetails interface implementation ---

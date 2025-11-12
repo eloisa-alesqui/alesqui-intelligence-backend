@@ -69,21 +69,24 @@ public class SecurityConfig {
                 .pathMatchers("/actuator/health", "/actuator/info").permitAll()
                 .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 
-                .pathMatchers(HttpMethod.GET, "/api/swagger/**").hasRole("IT") 
-                .pathMatchers(HttpMethod.POST, "/api/swagger/**").hasRole("IT") 
-                .pathMatchers(HttpMethod.DELETE, "/api/swagger/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.GET, "/api/swagger/**").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.POST, "/api/swagger/**").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.DELETE, "/api/swagger/**").hasAnyRole("IT", "SUPERADMIN") 
                 
-                .pathMatchers(HttpMethod.GET, "/api/postman/**").hasRole("IT") 
-                .pathMatchers(HttpMethod.POST, "/api/postman/**").hasRole("IT") 
-                .pathMatchers(HttpMethod.DELETE, "/api/postman/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.GET, "/api/postman/**").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.POST, "/api/postman/**").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.DELETE, "/api/postman/**").hasAnyRole("IT", "SUPERADMIN") 
                 
-                .pathMatchers(HttpMethod.POST, "/api/unification/unify").hasRole("IT") 
-                .pathMatchers(HttpMethod.PUT, "/api/unification/*/configuration").hasRole("IT") 
-                .pathMatchers(HttpMethod.DELETE, "/api/unification/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.POST, "/api/unification/unify").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.PUT, "/api/unification/*/configuration").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.DELETE, "/api/unification/**").hasAnyRole("IT", "SUPERADMIN") 
                 
-                .pathMatchers(HttpMethod.GET, "/api/diagnostics/**").hasRole("IT") 
-                .pathMatchers(HttpMethod.POST, "/api/diagnostics/**").hasRole("IT") 
-                .pathMatchers(HttpMethod.PUT, "/api/diagnostics/**").hasRole("IT") 
+                .pathMatchers(HttpMethod.GET, "/api/diagnostics/**").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.POST, "/api/diagnostics/**").hasAnyRole("IT", "SUPERADMIN") 
+                .pathMatchers(HttpMethod.PUT, "/api/diagnostics/**").hasAnyRole("IT", "SUPERADMIN") 
+                
+                // Administrative endpoints restricted to SUPERADMIN role
+                .pathMatchers("/api/admin/**").hasRole("SUPERADMIN")
                 
                 .anyExchange().authenticated() // All other requests require authentication
             )

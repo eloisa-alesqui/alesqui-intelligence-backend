@@ -17,6 +17,7 @@ import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedTag;
 import es.alesqui.intelligence.service.UnifiedApiService;
+import es.alesqui.intelligence.service.access.ApiVisibilityService;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.formatParametersDetailedForLLM;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.formatResponsesForLLM;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.getOperationIdOrDefault;
@@ -24,6 +25,7 @@ import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.parseMethodPath;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.renderRequestBodySchemaMarkdown;
 import static es.alesqui.intelligence.service.chat.tools.support.SseSupport.getSinkFromContext;
+import es.alesqui.intelligence.service.identity.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Sinks;
@@ -49,6 +51,8 @@ public class ApiDiscoveryTools {
     private final UnifiedApiService unifiedApiService;
     private final ObjectMapper objectMapper;
     private final es.alesqui.intelligence.service.chat.tools.support.InspectionPolicyService inspectionPolicy;
+    private final ApiVisibilityService apiVisibilityService;
+    private final UserService userService;
 
     /**
      * Lists all active APIs with basic metadata to help choose a target system.
@@ -65,12 +69,15 @@ public class ApiDiscoveryTools {
 
         log.info("Executing tool: listApis");
         try {
-            var apis = unifiedApiService.findActiveApis().collectList().block(Duration.ofSeconds(10));
+            // Resolve current user id (if available)
+            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
+
+            var apis = apiVisibilityService.listVisibleApis(userId).collectList().block(Duration.ofSeconds(10));
             if (apis == null || apis.isEmpty()) {
                 if (sink != null) sink.tryEmitNext(SseEvent.status("No APIs found."));
                 return "No available APIs were found.";
             }
-
+    
             if (sink != null) sink.tryEmitNext(SseEvent.status("Found " + apis.size() + " APIs."));
             return "Available APIs:\n" + apis.stream()
                 .map(api -> {
@@ -82,7 +89,8 @@ public class ApiDiscoveryTools {
         } catch (Exception e) {
             log.error("Error in listApis tool", e);
             if (sink != null) sink.tryEmitNext(SseEvent.status("Failed to list APIs."));
-            return "Error while trying to list APIs: " + e.getMessage();
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            return "Error while trying to list APIs: " + message;
         }
     }
 
@@ -105,6 +113,12 @@ public class ApiDiscoveryTools {
             UnifiedApiDocument api = unifiedApiService.findByName(apiName.trim()).block(Duration.ofSeconds(10));
             if (api == null) {
                 return "Error: No API was found with the name: " + apiName;
+            }
+            // Access control: verify visibility for current user
+            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
+            Boolean allowed = apiVisibilityService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
+            if (allowed == null || !allowed) {
+                return "Error: You don't have permission to view endpoints for API: " + apiName;
             }
             if (api.getEndpoints() == null || api.getEndpoints().isEmpty()) {
                 return "The API '" + apiName + "' has no available endpoints.";
@@ -152,12 +166,20 @@ public class ApiDiscoveryTools {
 
         try {
             UnifiedApiDocument api = unifiedApiService.findByName(apiName.trim()).block(Duration.ofSeconds(10));
-            if (api == null) throw new IllegalArgumentException("No API found with name: " + apiName);
+            if (api == null) {
+                return "Error: No API found with name: " + apiName;
+            }
+
+            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
+            Boolean allowed = apiVisibilityService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
+            if (allowed == null || !allowed) {
+                return "Error: You don't have permission to inspect endpoints for API: " + apiName;
+            }
 
             UnifiedEndpoint endpoint = api.getEndpoints().stream()
-                .filter(e -> operationId.trim().equals(e.getOperationId()))
-                .findFirst()
-                .orElse(null);
+                    .filter(e -> operationId.trim().equals(e.getOperationId()))
+                    .findFirst()
+                    .orElse(null);
 
             if (endpoint == null) {
                 var mp = parseMethodPath(operationId);
@@ -180,13 +202,13 @@ public class ApiDiscoveryTools {
             }
 
             if (endpoint == null) {
-                throw new IllegalArgumentException("No endpoint found with operation ID '" + operationId + "' in API '" + apiName + "'");
+                return "Error: No endpoint found with operation ID '" + operationId + "' in API '" + apiName + "'";
             }
 
             StringBuilder sb = new StringBuilder();
             sb.append("## Endpoint: ").append(endpoint.getOperationId())
-              .append(" (").append(endpoint.getMethod()).append(") ")
-              .append(endpoint.getPath() != null ? endpoint.getPath() : "").append("\n\n");
+                    .append(" (").append(endpoint.getMethod()).append(") ")
+                    .append(endpoint.getPath() != null ? endpoint.getPath() : "").append("\n\n");
 
             if (StringUtils.isNotBlank(endpoint.getSummary())) {
                 sb.append("**Summary:** ").append(endpoint.getSummary()).append("\n\n");
@@ -204,7 +226,6 @@ public class ApiDiscoveryTools {
             sb.append("### Responses\n");
             sb.append(formatResponsesForLLM(api, endpoint.getResponses(), objectMapper)).append("\n");
 
-            // Record inspection for policy enforcement (per conversation)
             try {
                 String conversationId = toolContext != null && toolContext.getContext() != null
                         ? (String) toolContext.getContext().get("conversationId")
@@ -212,7 +233,7 @@ public class ApiDiscoveryTools {
                 String opKey = getOperationIdOrDefault(endpoint);
                 inspectionPolicy.recordInspection(conversationId, api.getName(), opKey);
             } catch (Exception ignore) {
-                // non-fatal; best-effort tracking only
+                // best-effort only
             }
 
             if (sink != null) sink.tryEmitNext(SseEvent.status("Endpoint details assembled."));

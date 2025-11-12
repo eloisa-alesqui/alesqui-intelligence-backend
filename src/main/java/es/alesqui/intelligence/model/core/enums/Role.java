@@ -36,4 +36,10 @@ public enum Role {
      * - Can view detailed step-by-step reasoning for debugging purposes.
      */
     ROLE_IT
+    ,
+    /**
+     * Global super administrator with unrestricted access.
+     * Bypasses group-based API visibility checks.
+     */
+    ROLE_SUPERADMIN
 }

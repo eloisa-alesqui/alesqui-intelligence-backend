@@ -24,11 +24,13 @@ import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
 import es.alesqui.intelligence.service.UnifiedApiService;
+import es.alesqui.intelligence.service.access.ApiVisibilityService;
 import es.alesqui.intelligence.service.api.ApiExecutionService;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.getOperationIdOrDefault;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.normalizePath;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.parseMethodPath;
 import static es.alesqui.intelligence.service.chat.tools.support.SseSupport.getSinkFromContext;
+import es.alesqui.intelligence.service.identity.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Sinks;
@@ -56,6 +58,8 @@ public class ApiInvocationTools {
     private final ApiExecutionService apiExecutionService;
     private final ObjectMapper objectMapper;
     private final es.alesqui.intelligence.service.chat.tools.support.InspectionPolicyService inspectionPolicy;
+    private final ApiVisibilityService apiVisibilityService;
+    private final UserService userService;
 
     /**
      * Calls a specific API endpoint with the provided parameters.
@@ -92,6 +96,13 @@ public class ApiInvocationTools {
 
             UnifiedApiDocument api = unifiedApiService.findByName(apiName.trim()).block(Duration.ofSeconds(10));
             if (api == null) throw new ApiExecutionException("No API found with name: " + apiName);
+
+            // Access control: verify visibility for current user
+            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
+            Boolean allowed = apiVisibilityService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
+            if (allowed == null || !allowed) {
+                return createInsufficientPrivilegesResponse(apiName, operationId);
+            }
 
             UnifiedEndpoint endpoint = api.getEndpoints().stream()
                 .filter(e -> operationId.trim().equals(e.getOperationId())).findFirst()
@@ -316,5 +327,24 @@ public class ApiInvocationTools {
     return ApiCallResponse.failure(error, 428)
         .withApiDetails(apiName, operationId)
         .withExecutionTime(0L);
+    }
+
+    /**
+     * Creates a structured response indicating the user doesn't have privileges
+     * to execute this API operation due to group-based visibility rules.
+     */
+    private ApiCallResponse createInsufficientPrivilegesResponse(String apiName, String operationId) {
+        StructuredApiError error = StructuredApiError.builder()
+                .errorType("INSUFFICIENT_PRIVILEGES")
+                .message("You're not allowed to access this API. Contact an administrator to request access.")
+                .details(Map.of(
+                        "apiName", apiName,
+                        "operationId", operationId,
+                        "reason", "API is restricted to specific groups and you're not a member."
+                ))
+                .build();
+        return ApiCallResponse.failure(error, 403)
+                .withApiDetails(apiName, operationId)
+                .withExecutionTime(0L);
     }
 }

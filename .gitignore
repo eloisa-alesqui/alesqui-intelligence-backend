@@ -41,3 +41,7 @@ Thumbs.db
 
 #Factory Path
 .factorypath
+
+# Logs
+logs/**/*.log
+logs/**/*.log.*
