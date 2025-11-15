@@ -502,12 +502,17 @@ public class AccessAdminService {
      */
     public Flux<UserSummaryResponse> listAllUsers() {
         return userRepository.findAll()
-            .map(user -> UserSummaryResponse.builder()
-                .id(user.getId())
-                .username(user.getUsername())
-                .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
-                .isActive(user.isActive())
-                .build());
+            .flatMap(user -> 
+                membershipRepository.findByUserId(user.getId())
+                    .count()
+                    .map(groupCount -> UserSummaryResponse.builder()
+                        .id(user.getId())
+                        .username(user.getUsername())
+                        .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
+                        .active(user.isActive())
+                        .groupCount(groupCount.intValue())
+                        .build())
+            );
     }
 
     /**
@@ -556,12 +561,17 @@ public class AccessAdminService {
                             var userIds = members.stream().map(GroupMembership::getUserId).toList();
                             return userRepository.findAllById(userIds);
                         })
-                        .map(user -> UserSummaryResponse.builder()
-                                .id(user.getId())
-                                .username(user.getUsername())
-                                .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
-                                .isActive(user.isActive())
-                                .build())
+                        .flatMap(user -> 
+                            membershipRepository.findByUserId(user.getId())
+                                .count()
+                                .map(groupCount -> UserSummaryResponse.builder()
+                                    .id(user.getId())
+                                    .username(user.getUsername())
+                                    .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
+                                    .active(user.isActive())
+                                    .groupCount(groupCount.intValue())
+                                    .build())
+                        )
                         .collectList()
                         .doOnNext(list -> log.debug("Group {} resolved {} user summaries", groupId, list.size()));
 
@@ -654,7 +664,7 @@ public class AccessAdminService {
                                 .username(user.getUsername())
                                 .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
                                 .createdAt(user.getCreatedAt())
-                                .isActive(user.isActive())
+                                .active(user.isActive())
                                 .groupCount(groups.size())
                                 .groups(groups)
                                 .build())

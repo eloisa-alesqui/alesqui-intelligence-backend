@@ -59,7 +59,7 @@ public class UserDetailResponse {
     private Instant createdAt;
 
     /** Whether the user account is active (true) or pending activation (false). */
-    private boolean isActive;
+    private boolean active;
 
     /** Number of groups the user belongs to (equals groups.size). */
     private long groupCount;

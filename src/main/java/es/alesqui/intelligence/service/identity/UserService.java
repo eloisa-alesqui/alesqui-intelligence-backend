@@ -22,11 +22,10 @@ public class UserService {
     private final UserRepository userRepository;
 
     /**
-     * Returns the username of the current authenticated principal, or null if not available.
+     * Returns the username of the current authenticated principal, or empty if not available.
      */
     public Mono<String> getCurrentUsername() {
-        return SecurityUtils.getCurrentUsername()
-                .defaultIfEmpty(null);
+        return SecurityUtils.getCurrentUsername();
     }
 
     /**
@@ -34,7 +33,7 @@ public class UserService {
      */
     public Mono<User> getCurrentUser() {
         return getCurrentUsername()
-                .flatMap(username -> username == null ? Mono.empty() : userRepository.findByUsername(username));
+                .flatMap(userRepository::findByUsername);
     }
 
     /**
@@ -47,10 +46,10 @@ public class UserService {
     /**
      * Synchronous helper that blocks briefly to obtain the current user id.
      * Use only in contexts where reactive composition is not practical.
+     * Returns null if no user is authenticated or timeout occurs.
      */
     public String getCurrentUserIdBlocking(Duration timeout) {
-        Mono<String> idMono = getCurrentUserId();
-        return idMono != null ? idMono.block(timeout) : null;
+        return getCurrentUserId().block(timeout);
     }
 
     /**

@@ -270,6 +270,16 @@ public class SpringAIService {
 				.flatMap(securityContext -> {
 					String systemPrompt = buildPromptWithRole(baseSystemPrompt, securityContext.getAuthentication());
 
+					// Extract user ID from security context for tool usage
+					String userId = null;
+					if (securityContext.getAuthentication() != null 
+							&& securityContext.getAuthentication().getPrincipal() instanceof es.alesqui.intelligence.model.core.User) {
+						es.alesqui.intelligence.model.core.User user = 
+								(es.alesqui.intelligence.model.core.User) securityContext.getAuthentication().getPrincipal();
+						userId = user.getId();
+					}
+					final String finalUserId = userId; // For lambda capture
+
 					return Mono.fromCallable(() -> {
 						log.debug("Processing chat with tools for conversation: {}", conversationId);
 						long startTime = System.currentTimeMillis();
@@ -318,6 +328,7 @@ public class SpringAIService {
 							Map<String, Object> contextMap = new HashMap<>();
 							contextMap.put("sseSink", statusSink);
 							contextMap.put("conversationId", conversationId);
+							contextMap.put("userId", finalUserId); // Add userId for tool access
 							ToolContext toolContext = new ToolContext(contextMap);
 
 							statusSink.tryEmitNext(SseEvent.status("Thinking..."));

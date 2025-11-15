@@ -69,8 +69,10 @@ public class ApiDiscoveryTools {
 
         log.info("Executing tool: listApis");
         try {
-            // Resolve current user id (if available)
-            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
+            // Resolve current user id from tool context (passed from security context)
+            String userId = toolContext != null && toolContext.getContext() != null
+                    ? (String) toolContext.getContext().get("userId")
+                    : null;
 
             var apis = apiVisibilityService.listVisibleApis(userId).collectList().block(Duration.ofSeconds(10));
             if (apis == null || apis.isEmpty()) {

@@ -26,9 +26,10 @@ import lombok.NoArgsConstructor;
  * - roles list is never null (empty when user has no roles).
  * - id and username are expected to be stable identifiers.
  * - isActive indicates whether the user has completed account activation.
+ * - groupCount indicates the number of groups the user belongs to.
  *
  * Example JSON fragment:
- * {"id":"u42","username":"alice","roles":["ROLE_IT","ROLE_SUPERADMIN"],"isActive":true}
+ * {"id":"u42","username":"alice","roles":["ROLE_IT","ROLE_SUPERADMIN"],"active":true,"groupCount":3}
  */
 @Data
 @Builder
@@ -45,5 +46,8 @@ public class UserSummaryResponse {
     private List<String> roles;
 
     /** Whether the user account is active (true) or pending activation (false). */
-    private boolean isActive;
+    private boolean active;
+
+    /** Number of groups this user belongs to. */
+    private int groupCount;
 }
