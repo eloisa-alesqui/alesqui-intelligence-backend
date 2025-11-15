@@ -4,9 +4,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -94,7 +96,36 @@ public class AuthenticationController {
         return accessAdminService.validateActivationToken(request.getToken())
             .map(user -> {
                 String role = user.getRoles().stream()
-                    .map(Role::name)
+                    .map(Role::getLabel)
+                    .findFirst()
+                    .orElse("N/A");
+                
+                return ValidateTokenResponse.builder()
+                    .valid(true)
+                    .email(user.getUsername())
+                    .role(role)
+                    .build();
+            })
+            .switchIfEmpty(Mono.just(ValidateTokenResponse.builder()
+                .valid(false)
+                .message("Invalid or expired token")
+                .build()));
+    }
+
+    /**
+     * Validates an activation token via GET request (for direct URL access).
+     * 
+     * @param token the activation token from query parameter
+     * @return validation response with user details if valid
+     */
+    @GetMapping("/validate-token")
+    public Mono<ValidateTokenResponse> validateTokenGet(@RequestParam String token) {
+        log.debug("[Auth] Validating activation token via GET");
+        
+        return accessAdminService.validateActivationToken(token)
+            .map(user -> {
+                String role = user.getRoles().stream()
+                    .map(Role::getLabel)
                     .findFirst()
                     .orElse("N/A");
                 

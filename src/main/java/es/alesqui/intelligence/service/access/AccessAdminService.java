@@ -319,7 +319,7 @@ public class AccessAdminService {
                     
                     User newUser = userBuilder.build();
                     String rolesStr = req.getRoles().stream()
-                        .map(Role::name)
+                        .map(Role::getLabel)
                         .reduce((a, b) -> a + ", " + b)
                         .orElse("N/A");
                     
@@ -732,7 +732,7 @@ public class AccessAdminService {
                 user.setActivationTokenExpiresAt(newExpiration);
                 
                 String rolesStr = user.getRoles().stream()
-                    .map(Role::name)
+                    .map(Role::getLabel)
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("N/A");
                 

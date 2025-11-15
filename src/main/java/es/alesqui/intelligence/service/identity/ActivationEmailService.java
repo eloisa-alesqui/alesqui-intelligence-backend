@@ -61,11 +61,11 @@ public class ActivationEmailService {
      * 
      * @param email the user's email address
      * @param token the activation token
-     * @param roles the user's assigned roles
+     * @param roles the user's assigned role labels (e.g., "Business", "IT", "Super Admin")
      * @return a Mono signaling completion
      */
     public Mono<Void> sendActivationEmail(String email, String token, String roles) {
-        String activationUrl = String.format("https://yourapp.com/activate-account?token=%s", token);
+        String activationUrl = String.format("https://intelligence.alesqui.com/activate-account?token=%s", token);
         
         String emailBody = buildEmailBody(email, roles, activationUrl);
         

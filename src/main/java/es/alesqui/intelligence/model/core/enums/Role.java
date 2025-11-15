@@ -21,7 +21,7 @@ public enum Role {
      * - They cannot view or modify API configurations.
      * - Technical details, like step-by-step reasoning, are hidden by default.
      */
-    ROLE_BUSINESS,
+    ROLE_BUSINESS("Business", "Business user access to assigned APIs"),
 
     /**
      * Represents an Information Technology (IT) or system administrator user.
@@ -35,11 +35,41 @@ public enum Role {
      * - Ability to view system diagnostics and support panels.
      * - Can view detailed step-by-step reasoning for debugging purposes.
      */
-    ROLE_IT
-    ,
+    ROLE_IT("IT", "API configuration, diagnostics, and technical management"),
+
     /**
      * Global super administrator with unrestricted access.
      * Bypasses group-based API visibility checks.
      */
-    ROLE_SUPERADMIN
+    ROLE_SUPERADMIN("Super Admin", "Full system access, user management, and configuration"),
+
+    /**
+     * Trial user with limited access.
+     * Used for evaluating the system before full activation.
+     */
+    ROLE_TRIAL("Trial", "Limited trial access to the system");
+
+    private final String label;
+    private final String description;
+
+    Role(String label, String description) {
+        this.label = label;
+        this.description = description;
+    }
+
+    /**
+     * Gets the human-readable label for this role.
+     * @return the display label (e.g., "Business", "IT", "Super Admin", "Trial")
+     */
+    public String getLabel() {
+        return label;
+    }
+
+    /**
+     * Gets the description of this role's capabilities.
+     * @return the role description
+     */
+    public String getDescription() {
+        return description;
+    }
 }
