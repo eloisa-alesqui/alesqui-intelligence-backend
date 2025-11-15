@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import es.alesqui.intelligence.dto.admin.AssignApisRequest;
 import es.alesqui.intelligence.dto.admin.AssignGroupsRequest;
 import es.alesqui.intelligence.dto.admin.AssignUsersRequest;
+import es.alesqui.intelligence.dto.admin.CreateUserRequest;
 import es.alesqui.intelligence.dto.admin.GroupCreateRequest;
 import es.alesqui.intelligence.dto.admin.GroupUpdateRequest;
 import es.alesqui.intelligence.dto.admin.GroupSummaryResponse;
@@ -75,6 +76,11 @@ public class AccessAdminService {
      * Password encoder for hashing passwords.
      */
     private final PasswordEncoder passwordEncoder;
+
+    /**
+     * Service for sending activation emails.
+     */
+    private final es.alesqui.intelligence.service.identity.ActivationEmailService activationEmailService;
 
     /**
      * Creates a new group.
@@ -268,6 +274,67 @@ public class AccessAdminService {
     }
 
     /**
+     * Creates a new user with the specified username, password (optional), and roles.
+     * 
+     * Two creation modes:
+     * 1. With password: User is immediately active and can log in
+     * 2. Without password: User receives activation email with token to set password
+     * 
+     * @param req the request containing user creation details
+     * @return the created user
+     */
+    public Mono<User> createUser(CreateUserRequest req) {
+        String username = req.getUsername().trim();
+        boolean hasPassword = req.getPassword() != null && !req.getPassword().isBlank();
+        
+        // Check if user already exists
+        return userRepository.findByUsername(username)
+            .flatMap(existingUser -> Mono.<User>error(
+                new IllegalArgumentException("User already exists with username: " + username)))
+            .switchIfEmpty(Mono.defer(() -> {
+                User.UserBuilder userBuilder = User.builder()
+                    .username(username)
+                    .roles(req.getRoles())
+                    .createdAt(Instant.now());
+                
+                if (hasPassword) {
+                    // Mode 1: Immediate activation with password
+                    userBuilder
+                        .password(passwordEncoder.encode(req.getPassword()))
+                        .isActive(true);
+                    
+                    log.info("Creating active user with password: {}", username);
+                    return userRepository.save(userBuilder.build());
+                    
+                } else {
+                    // Mode 2: Pending activation, send email
+                    String token = activationEmailService.generateActivationToken();
+                    Instant expiration = activationEmailService.calculateTokenExpiration();
+                    
+                    userBuilder
+                        .password(null)
+                        .isActive(false)
+                        .activationToken(token)
+                        .activationTokenExpiresAt(expiration);
+                    
+                    User newUser = userBuilder.build();
+                    String rolesStr = req.getRoles().stream()
+                        .map(Role::name)
+                        .reduce((a, b) -> a + ", " + b)
+                        .orElse("N/A");
+                    
+                    log.info("Creating inactive user (pending activation): {}", username);
+                    
+                    return userRepository.save(newUser)
+                        .flatMap(savedUser -> 
+                            activationEmailService.sendActivationEmail(username, token, rolesStr)
+                                .thenReturn(savedUser)
+                        );
+                }
+            }));
+    }
+
+    /**
      * Updates the roles of a user.
      * @param username the username of the user
      * @param req the request containing new roles
@@ -384,15 +451,6 @@ public class AccessAdminService {
     }
 
     /**
-     * Audits access logs.
-     * @return a Flux of audit log entries
-     */
-    public Flux<String> auditAccess() {
-        // Placeholder stub - integrate with real audit trail later
-        return Flux.just("AUDIT_STUB: integrate persistence later");
-    }
-
-    /**
      * Lists all groups with user and API counts.
      * @return a Flux of group summary responses
      */
@@ -448,6 +506,7 @@ public class AccessAdminService {
                 .id(user.getId())
                 .username(user.getUsername())
                 .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
+                .isActive(user.isActive())
                 .build());
     }
 
@@ -501,6 +560,7 @@ public class AccessAdminService {
                                 .id(user.getId())
                                 .username(user.getUsername())
                                 .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
+                                .isActive(user.isActive())
                                 .build())
                         .collectList()
                         .doOnNext(list -> log.debug("Group {} resolved {} user summaries", groupId, list.size()));
@@ -594,10 +654,94 @@ public class AccessAdminService {
                                 .username(user.getUsername())
                                 .roles(user.getRoles() == null ? List.of() : user.getRoles().stream().map(Role::name).toList())
                                 .createdAt(user.getCreatedAt())
+                                .isActive(user.isActive())
                                 .groupCount(groups.size())
                                 .groups(groups)
                                 .build())
                         .doOnNext(r -> log.debug("Built UserDetailResponse for {} with {} groups", userId, r.getGroupCount()));
+            });
+    }
+
+    /**
+     * Validates an activation token.
+     * 
+     * @param token the activation token to validate
+     * @return Mono containing the user if token is valid, empty if invalid/expired
+     */
+    public Mono<User> validateActivationToken(String token) {
+        return userRepository.findAll()
+            .filter(user -> token.equals(user.getActivationToken()))
+            .next()
+            .flatMap(user -> {
+                if (user.isActive()) {
+                    log.warn("Token used for already active user: {}", user.getUsername());
+                    return Mono.empty();
+                }
+                
+                if (user.getActivationTokenExpiresAt() == null || 
+                    user.getActivationTokenExpiresAt().isBefore(Instant.now())) {
+                    log.warn("Expired activation token for user: {}", user.getUsername());
+                    return Mono.empty();
+                }
+                
+                log.debug("Valid activation token for user: {}", user.getUsername());
+                return Mono.just(user);
+            });
+    }
+
+    /**
+     * Activates a user account with the provided token and password.
+     * 
+     * @param token the activation token
+     * @param password the new password to set
+     * @return Mono containing the activated user
+     */
+    public Mono<User> activateAccount(String token, String password) {
+        return validateActivationToken(token)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Invalid or expired activation token")))
+            .flatMap(user -> {
+                user.setPassword(passwordEncoder.encode(password));
+                user.setActive(true);
+                user.setActivationToken(null);
+                user.setActivationTokenExpiresAt(null);
+                
+                log.info("Activating user account: {}", user.getUsername());
+                return userRepository.save(user);
+            });
+    }
+
+    /**
+     * Resends an activation email to a user.
+     * 
+     * @param email the user's email address
+     * @return Mono signaling completion
+     */
+    public Mono<Void> resendActivationEmail(String email) {
+        return userRepository.findByUsername(email)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + email)))
+            .flatMap(user -> {
+                if (user.isActive()) {
+                    return Mono.error(new IllegalArgumentException("User is already active"));
+                }
+                
+                // Generate new token
+                String newToken = activationEmailService.generateActivationToken();
+                Instant newExpiration = activationEmailService.calculateTokenExpiration();
+                
+                user.setActivationToken(newToken);
+                user.setActivationTokenExpiresAt(newExpiration);
+                
+                String rolesStr = user.getRoles().stream()
+                    .map(Role::name)
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("N/A");
+                
+                log.info("Resending activation email to: {}", email);
+                
+                return userRepository.save(user)
+                    .flatMap(savedUser -> 
+                        activationEmailService.sendActivationEmail(email, newToken, rolesStr)
+                    );
             });
     }
 }

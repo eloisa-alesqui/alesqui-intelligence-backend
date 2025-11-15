@@ -25,9 +25,10 @@ import lombok.NoArgsConstructor;
  * Invariants:
  * - roles list is never null (empty when user has no roles).
  * - id and username are expected to be stable identifiers.
+ * - isActive indicates whether the user has completed account activation.
  *
  * Example JSON fragment:
- * {"id":"u42","username":"alice","roles":["ROLE_IT","ROLE_SUPERADMIN"]}
+ * {"id":"u42","username":"alice","roles":["ROLE_IT","ROLE_SUPERADMIN"],"isActive":true}
  */
 @Data
 @Builder
@@ -42,4 +43,7 @@ public class UserSummaryResponse {
 
     /** Granted roles for the user, e.g. ROLE_IT, ROLE_BUSINESS, ROLE_SUPERADMIN. Empty list when none. */
     private List<String> roles;
+
+    /** Whether the user account is active (true) or pending activation (false). */
+    private boolean isActive;
 }

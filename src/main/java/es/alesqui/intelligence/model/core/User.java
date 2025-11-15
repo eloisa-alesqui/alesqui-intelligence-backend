@@ -49,7 +49,7 @@ public class User implements UserDetails {
 
     /**
      * The user's password. It must be stored in a securely hashed format,
-     * such as BCrypt.
+     * such as BCrypt. Can be null for users pending activation.
      */
     private String password;
 
@@ -64,6 +64,27 @@ public class User implements UserDetails {
      * Creation timestamp for auditing. Records when the user account was created.
      */
     private Instant createdAt;
+
+    /**
+     * Indicates whether the user account is active.
+     * New users are inactive until they complete the activation process.
+     */
+    @Builder.Default
+    private boolean isActive = true; // Default true for backward compatibility
+
+    /**
+     * Account activation token. Generated when a user is created without a password.
+     * This token is sent via email and used to set the initial password.
+     * Indexed for fast lookups during activation process.
+     */
+    @Indexed
+    private String activationToken;
+
+    /**
+     * Expiration timestamp for the activation token.
+     * Typically set to 48 hours after user creation.
+     */
+    private Instant activationTokenExpiresAt;
 
 
     // --- UserDetails interface implementation ---
@@ -120,12 +141,12 @@ public class User implements UserDetails {
 
     /**
      * Indicates whether the user is enabled or disabled.
-     * For this implementation, users are always enabled.
+     * Users must be active to log in.
      *
-     * @return always true.
+     * @return true if the user account is active.
      */
     @Override
     public boolean isEnabled() {
-        return true;
+        return isActive;
     }
 }

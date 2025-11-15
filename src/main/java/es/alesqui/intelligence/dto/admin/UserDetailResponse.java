@@ -17,6 +17,7 @@ import lombok.NoArgsConstructor;
  *
  * Invariants:
  * - groupCount equals groups.size.
+ * - isActive indicates whether the user has completed account activation.
  *
  * Example JSON:
  * {
@@ -24,6 +25,7 @@ import lombok.NoArgsConstructor;
  *   "username": "john.doe@example.com",
  *   "roles": ["USER", "ADMIN"],
  *   "createdAt": "2024-01-15T10:30:00Z",
+ *   "isActive": true,
  *   "groupCount": 2,
  *   "groups": [
  *     {
@@ -55,6 +57,9 @@ public class UserDetailResponse {
 
     /** Creation timestamp. */
     private Instant createdAt;
+
+    /** Whether the user account is active (true) or pending activation (false). */
+    private boolean isActive;
 
     /** Number of groups the user belongs to (equals groups.size). */
     private long groupCount;

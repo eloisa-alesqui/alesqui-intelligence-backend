@@ -8,6 +8,7 @@ import es.alesqui.intelligence.dto.admin.ApiSummaryResponse;
 import es.alesqui.intelligence.dto.admin.AssignApisRequest;
 import es.alesqui.intelligence.dto.admin.AssignGroupsRequest;
 import es.alesqui.intelligence.dto.admin.AssignUsersRequest;
+import es.alesqui.intelligence.dto.admin.CreateUserRequest;
 import es.alesqui.intelligence.dto.admin.GroupCreateRequest;
 import es.alesqui.intelligence.dto.admin.GroupDetailResponse;
 import es.alesqui.intelligence.dto.admin.GroupUpdateRequest;
@@ -161,6 +162,17 @@ public class AdminAccessController {
     }
 
     /**
+     * Creates a new user with the specified username, password, and roles.
+     *
+     * @param req the request containing username, password, and roles
+     * @return a Mono containing the newly created user
+     */
+    @PostMapping("/users")
+    public Mono<User> createUser(@Valid @RequestBody CreateUserRequest req) {
+        return adminService.createUser(req);
+    }
+
+    /**
      * Lists all users with their role and group count summary.
      *
      * @return a Flux of user summaries
@@ -235,16 +247,6 @@ public class AdminAccessController {
     public Mono<ResponseEntity<Void>> removeGroupFromUser(@PathVariable String userId, @PathVariable String groupId) {
         return adminService.removeGroupFromUser(userId, groupId)
                 .thenReturn(ResponseEntity.noContent().<Void>build());
-    }
-
-    /**
-     * Retrieves audit logs for access events.
-     *
-     * @return a Flux of audit access entries
-     */
-    @GetMapping("/audit/access")
-    public Flux<String> getAuditAccess() {
-        return adminService.auditAccess();
     }
 
     /**
