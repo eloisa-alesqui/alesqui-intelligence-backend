@@ -275,6 +275,8 @@ public class AccessAdminService {
 
     /**
      * Creates a new user with the specified username, password (optional), and roles.
+     * If the user has ROLE_TRIAL and is created with a password (immediately active),
+     * automatically creates a workspace group.
      * 
      * Two creation modes:
      * 1. With password: User is immediately active and can log in
@@ -286,6 +288,7 @@ public class AccessAdminService {
     public Mono<User> createUser(CreateUserRequest req) {
         String username = req.getUsername().trim();
         boolean hasPassword = req.getPassword() != null && !req.getPassword().isBlank();
+        boolean hasTrialRole = req.getRoles() != null && req.getRoles().contains(Role.ROLE_TRIAL);
         
         // Check if user already exists
         return userRepository.findByUsername(username)
@@ -304,7 +307,17 @@ public class AccessAdminService {
                         .isActive(true);
                     
                     log.info("Creating active user with password: {}", username);
-                    return userRepository.save(userBuilder.build());
+                    return userRepository.save(userBuilder.build())
+                        .flatMap(savedUser -> {
+                            // If ROLE_TRIAL user created with password, create workspace immediately
+                            if (hasTrialRole) {
+                                log.info("User {} has ROLE_TRIAL and was created with password, creating automatic workspace", 
+                                    savedUser.getUsername());
+                                return createTrialWorkspace(savedUser)
+                                    .thenReturn(savedUser);
+                            }
+                            return Mono.just(savedUser);
+                        });
                     
                 } else {
                     // Mode 2: Pending activation, send email
@@ -325,11 +338,10 @@ public class AccessAdminService {
                     
                     log.info("Creating inactive user (pending activation): {}", username);
                     
-                    return userRepository.save(newUser)
-                        .flatMap(savedUser -> 
-                            activationEmailService.sendActivationEmail(username, token, rolesStr)
-                                .thenReturn(savedUser)
-                        );
+                    // Send email first, only save user if email succeeds
+                    return activationEmailService.sendActivationEmail(username, token, rolesStr)
+                        .then(userRepository.save(newUser))
+                        .doOnError(e -> log.error("Failed to send activation email for user {}, not saving user", username, e));
                 }
             }));
     }
@@ -544,6 +556,40 @@ public class AccessAdminService {
     }
 
     /**
+     * Creates a workspace group automatically for TRIAL users.
+     * Group name: "{username}'s Workspace"
+     * Group code: "trial-{userId}"
+     * 
+     * @param user the TRIAL user for whom to create the workspace
+     * @return Mono of the created Group
+     */
+    private Mono<Group> createTrialWorkspace(User user) {
+        String username = user.getUsername();
+        String displayName = username.contains("@") 
+            ? username.substring(0, username.indexOf("@")) 
+            : username;
+        
+        Group workspace = new Group();
+        workspace.setCode("trial-" + user.getId());
+        workspace.setName(displayName + "'s Workspace");
+        workspace.setDescription("Auto-created workspace for trial user");
+        workspace.setCreatedBy(user.getId());
+        workspace.setCreatedAt(Instant.now());
+        
+        log.info("Creating trial workspace for user {}: code={}, name={}", 
+            username, workspace.getCode(), workspace.getName());
+        
+        return groupRepository.save(workspace)
+            .flatMap(savedGroup -> 
+                membershipRepository.save(buildMembership(user.getId(), savedGroup.getId()))
+                    .thenReturn(savedGroup)
+            )
+            .doOnSuccess(g -> log.info("Successfully created trial workspace {} for user {}", 
+                g.getCode(), username))
+            .doOnError(e -> log.error("Failed to create trial workspace for user {}", username, e));
+    }
+
+    /**
      * Retrieves detailed information about a group.
      * @param groupId the ID of the group
      * @return the group detail response
@@ -701,6 +747,7 @@ public class AccessAdminService {
 
     /**
      * Activates a user account with the provided token and password.
+     * If the user has ROLE_TRIAL, automatically creates a workspace group.
      * 
      * @param token the activation token
      * @param password the new password to set
@@ -716,7 +763,20 @@ public class AccessAdminService {
                 user.setActivationTokenExpiresAt(null);
                 
                 log.info("Activating user account: {}", user.getUsername());
-                return userRepository.save(user);
+                return userRepository.save(user)
+                    .flatMap(savedUser -> {
+                        // Check if user has ROLE_TRIAL
+                        boolean hasTrialRole = savedUser.getRoles() != null && 
+                            savedUser.getRoles().contains(Role.ROLE_TRIAL);
+                        
+                        if (hasTrialRole) {
+                            log.info("User {} has ROLE_TRIAL, creating automatic workspace", savedUser.getUsername());
+                            return createTrialWorkspace(savedUser)
+                                .thenReturn(savedUser);
+                        }
+                        
+                        return Mono.just(savedUser);
+                    });
             });
     }
 

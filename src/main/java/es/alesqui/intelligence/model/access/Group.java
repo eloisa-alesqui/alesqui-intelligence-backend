@@ -40,6 +40,11 @@ public class Group {
     private String description;
 
     /**
+     * User ID of the creator.
+     */
+    private String createdBy;
+
+    /**
      * Creation timestamp for auditing. Set by application code as needed.
      */
     private Instant createdAt;
