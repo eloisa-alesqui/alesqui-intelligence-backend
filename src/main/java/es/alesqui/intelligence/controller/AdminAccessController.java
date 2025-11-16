@@ -1,6 +1,7 @@
 package es.alesqui.intelligence.controller;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -246,6 +247,22 @@ public class AdminAccessController {
     @DeleteMapping("/users/{userId}/groups/{groupId}")
     public Mono<ResponseEntity<Void>> removeGroupFromUser(@PathVariable String userId, @PathVariable String groupId) {
         return adminService.removeGroupFromUser(userId, groupId)
+                .thenReturn(ResponseEntity.noContent().<Void>build());
+    }
+
+    /**
+     * Deletes a user from the system.
+     * Prevents deleting own account and the last SUPERADMIN.
+     * For TRIAL users, also deletes their auto-created workspace.
+     *
+     * @param userId the user ID to delete
+     * @param authentication the authenticated user (to prevent self-deletion)
+     * @return a ResponseEntity with 204 No Content on success
+     */
+    @DeleteMapping("/users/{userId}")
+    public Mono<ResponseEntity<Void>> deleteUser(@PathVariable String userId, Authentication authentication) {
+        String currentUsername = authentication.getName();
+        return adminService.deleteUser(userId, currentUsername)
                 .thenReturn(ResponseEntity.noContent().<Void>build());
     }
 

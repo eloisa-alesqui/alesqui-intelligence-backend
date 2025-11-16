@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -36,6 +37,7 @@ public class UnifiedApiService {
 	private final UnifiedApiRepository unifiedApiRepository;
 	private final SwaggerService swaggerService;
     private final PostmanService postmanService;
+    private final ApplicationEventPublisher eventPublisher;
 
 	/**
 	 * Retrieves all API documents from the repository.
@@ -103,60 +105,6 @@ public class UnifiedApiService {
 				.doOnNext(doc -> log.info("Found API document by name: {}", doc.getName())).switchIfEmpty(Mono.empty())
 				.doOnError(error -> log.error("Error fetching API document by name: {}", apiName, error));
 	}
-
-	/**
-	 * Creates a new API document entry in the repository.
-	 *
-	 * @param apiDocument The API document to save
-	 * @return Mono of the saved UnifiedApiDocument object
-	 */
-	@Transactional
-	public Mono<UnifiedApiDocument> createApi(UnifiedApiDocument apiDocument) {
-		log.info("Creating new API document: {}", apiDocument.getName());
-
-		return Mono.fromCallable(() -> {
-			// Validate API document
-			validateApiDocument(apiDocument);
-
-			// Set creation timestamp
-			apiDocument.setCreatedAt(Instant.now());
-			apiDocument.setUpdatedAt(Instant.now());
-
-			return apiDocument;
-		}).flatMap(validatedDoc -> checkDuplicatesAndSave(validatedDoc))
-				.doOnSuccess(saved -> log.info("API document created with ID: {}", saved.getId()))
-				.doOnError(error -> log.error("Error creating API document: {}", apiDocument.getName(), error));
-	}
-
-	/**
-	 * Updates an existing API document entry.
-	 *
-	 * @param apiId       The identifier of the API to update
-	 * @param apiDocument The updated API document
-	 * @return Mono of the updated UnifiedApiDocument object
-	 */
-	@Transactional
-	public Mono<UnifiedApiDocument> updateApi(String apiId, UnifiedApiDocument apiDocument) {
-		log.info("Updating API document with id: {}", apiId);
-
-		return unifiedApiRepository.findById(apiId)
-				.switchIfEmpty(Mono.error(new IllegalArgumentException("API not found with id: " + apiId)))
-				.flatMap(existingApi -> {
-					return Mono.fromCallable(() -> {
-						// Validate API document
-						validateApiDocument(apiDocument);
-
-						// Preserve creation timestamp and update modification timestamp
-						apiDocument.setId(apiId);
-						apiDocument.setCreatedAt(existingApi.getCreatedAt());
-						apiDocument.setUpdatedAt(Instant.now());
-
-						return apiDocument;
-					});
-				}).flatMap(updatedDoc -> unifiedApiRepository.save(updatedDoc))
-				.doOnSuccess(saved -> log.info("API document updated with ID: {}", saved.getId()))
-				.doOnError(error -> log.error("Error updating API document with ID: {}", apiId, error));
-	}
 	
 	/**
      * Finds a unified document by name, updates its ApiConfiguration, and saves it.
@@ -165,7 +113,7 @@ public class UnifiedApiService {
      * @param configuration The new configuration to apply.
      * @return A Mono containing the updated document, or an error if not found.
      */
-    public Mono<UnifiedApiDocument> updateConfiguration(String apiName, ApiConfiguration configuration) {
+    public Mono<UnifiedApiDocument> updateApiConfiguration(String apiName, ApiConfiguration configuration) {
         return unifiedApiRepository.findByNameIgnoreCase(apiName)
                 .switchIfEmpty(Mono.error(new RuntimeException("API not found: " + apiName))) 
                 .flatMap(document -> {

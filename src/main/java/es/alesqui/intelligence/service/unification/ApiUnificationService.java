@@ -5,11 +5,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.annotation.HandleApiUnificationException;
 import es.alesqui.intelligence.config.ChatConfig;
+import es.alesqui.intelligence.event.ApiCreatedEvent;
 import es.alesqui.intelligence.model.api_spec.postman.Collection;
 import es.alesqui.intelligence.model.api_spec.postman.PostmanDocument;
 import es.alesqui.intelligence.model.api_spec.swagger.SwaggerDocument;
@@ -18,6 +20,7 @@ import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
+import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.chat.SpringAIService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +37,7 @@ public class ApiUnificationService {
     private final UnifiedApiRepository repository;
     private final SpringAIService springAIService;
     private final ChatConfig chatConfig;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * Unifies a Swagger document with an optional Postman document into a single UnifiedApiDocument.
@@ -108,6 +112,7 @@ public class ApiUnificationService {
 
 	/**
      * Saves a Unified API document.
+     * For TRIAL users, automatically links the API to their workspace.
      * 
      * @param document the UnifiedApiDocument to save
      * @return a Mono of the saved UnifiedApiDocument
@@ -120,6 +125,15 @@ public class ApiUnificationService {
 
         log.info("Saving collection: {}", document.getName());
         return repository.save(document)
+                .flatMap(savedDoc -> 
+                    // Publish event to auto-link to TRIAL user workspace if applicable
+                    SecurityUtils.getCurrentUsername()
+                        .doOnNext(username -> {
+                            eventPublisher.publishEvent(new ApiCreatedEvent(this, savedDoc.getId(), username));
+                            log.debug("Published ApiCreatedEvent for API ID: {}, user: {}", savedDoc.getId(), username);
+                        })
+                        .thenReturn(savedDoc)
+                )
                 .doOnSuccess(saved -> log.info("UnifiedApiDocument saved with ID: {}", saved.getId()))
                 .doOnError(error -> log.error("Error saving collection: {}", document.getName(), error));
     }

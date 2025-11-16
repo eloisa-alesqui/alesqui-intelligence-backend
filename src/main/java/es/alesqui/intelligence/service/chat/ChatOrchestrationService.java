@@ -153,7 +153,7 @@ public class ChatOrchestrationService {
             // This Mono represents the core logic for generating a response.
             Mono<ChatResponse> responseGenerator = Mono.just(request)
                     .doOnNext(this::validateRequest)
-                    .flatMap(req -> executeToolBasedResponse(request, sink));
+                    .flatMap(req -> executeToolBasedResponse(request, sink, username));
 
             return memoryLoader
                 .then(responseGenerator)
@@ -205,9 +205,11 @@ public class ChatOrchestrationService {
      * to emit real-time status updates.
      *
      * @param request The original chat request.
+     * @param sink The sink for emitting SSE status events.
+     * @param username The username of the authenticated user.
      * @return A Mono emitting the final ChatResponse after tool execution.
      */
-    private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request, Sinks.Many<SseEvent> sink) {
+    private Mono<ChatResponse> executeToolBasedResponse(ChatRequest request, Sinks.Many<SseEvent> sink, String username) {
         Instant startTime = Instant.now();
         
         // Get the current date and format it.
@@ -216,7 +218,7 @@ public class ChatOrchestrationService {
     String template = loadSystemPromptTemplate();
     String systemPrompt = template.replace("{currentDate}", currentDate);
      
-        return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning(), sink)
+        return springAIService.chatWithTools(systemPrompt, request.getQuery(), request.getConversationId(), request.isIncludeReasoning(), sink, username)
             .timeout(chatConfig.getToolsTimeout())
             .onErrorResume(TimeoutException.class, error -> {
                 log.warn("⏱️ Request timeout after {} ms for query: '{}'", 

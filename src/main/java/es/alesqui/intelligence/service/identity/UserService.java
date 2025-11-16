@@ -53,6 +53,20 @@ public class UserService {
     }
 
     /**
+     * Resolves the userId from a given username with a blocking call.
+     * Use only in contexts where reactive composition is not practical (e.g., boundedElastic threads).
+     * Returns null if user is not found or timeout occurs.
+     */
+    public String getUserIdByUsernameBlocking(String username, Duration timeout) {
+        if (username == null || username.isEmpty()) {
+            return null;
+        }
+        return userRepository.findByUsername(username)
+                .map(User::getId)
+                .block(timeout);
+    }
+
+    /**
      * Checks if the provided userId belongs to a SUPERADMIN user.
      * If userId is null or user not found, returns false.
      */

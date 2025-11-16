@@ -72,7 +72,7 @@ public class ApiUnificationController {
             @RequestBody ApiConfiguration apiConfiguration) {
         
         log.info("Updating configuration for API: {}", apiName);
-        return unifiedApiService.updateConfiguration(apiName, apiConfiguration)
+        return unifiedApiService.updateApiConfiguration(apiName, apiConfiguration)
                 .map(ResponseEntity::ok) // On success, return 200 OK with the updated document
                 .onErrorResume(e -> {
                     log.error("Failed to update configuration for API '{}': {}", apiName, e.getMessage());
