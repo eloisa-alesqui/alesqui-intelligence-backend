@@ -1,6 +1,7 @@
 package es.alesqui.intelligence.service.identity;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.springframework.stereotype.Service;
 
@@ -9,6 +10,7 @@ import es.alesqui.intelligence.model.core.enums.Role;
 import es.alesqui.intelligence.repository.UserRepository;
 import es.alesqui.intelligence.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -88,5 +90,22 @@ public class UserService {
     /** Blocking convenience for SUPERADMIN check. */
     public boolean isCurrentUserSuperAdminBlocking(Duration timeout) {
         return Boolean.TRUE.equals(isCurrentUserSuperAdmin().block(timeout));
+    }
+    
+    /**
+     * Retrieves the usernames for a list of user IDs.
+     * * This method is used for group-based filtering where we need to resolve
+     * user IDs to usernames for querying conversation records.
+     *
+     * @param userIds A list of user IDs to resolve.
+     * @return A Flux emitting the username for each found user. 
+     * Users not found are silently skipped.
+     */
+    public Flux<String> getUsernamesByIds(List<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Flux.empty();
+        }
+        return userRepository.findAllById(userIds)
+                .map(User::getUsername);
     }
 }

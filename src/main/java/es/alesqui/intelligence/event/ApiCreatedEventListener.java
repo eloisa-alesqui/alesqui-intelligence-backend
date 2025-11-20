@@ -3,7 +3,7 @@ package es.alesqui.intelligence.event;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import es.alesqui.intelligence.service.access.AccessAdminService;
+import es.alesqui.intelligence.service.access.ApiGroupLinkService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,7 +16,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ApiCreatedEventListener {
     
-    private final AccessAdminService accessAdminService;
+    /**
+     * Service for API-Group link operations.
+     */
+    private final ApiGroupLinkService apiGroupLinkService;
     
     /**
      * Handles API creation events by auto-linking to TRIAL user workspaces if applicable.
@@ -27,7 +30,7 @@ public class ApiCreatedEventListener {
     public void handleApiCreated(ApiCreatedEvent event) {
         log.debug("Handling API created event for API: {}", event.getApiId());
         
-        accessAdminService.autoLinkApiToTrialWorkspace(event.getApiId(), event.getUsername())
+        apiGroupLinkService.autoLinkApiToTrialWorkspace(event.getApiId(), event.getUsername())
             .doOnSuccess(v -> log.debug("Auto-link check completed for API: {}", event.getApiId()))
             .doOnError(e -> log.error("Failed to auto-link API {} for user {}", 
                 event.getApiId(), event.getUsername(), e))

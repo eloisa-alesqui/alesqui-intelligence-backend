@@ -17,7 +17,7 @@ import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedTag;
 import es.alesqui.intelligence.service.UnifiedApiService;
-import es.alesqui.intelligence.service.access.ApiVisibilityService;
+import es.alesqui.intelligence.service.access.ApiGroupLinkService;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.formatParametersDetailedForLLM;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.formatResponsesForLLM;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.getOperationIdOrDefault;
@@ -51,7 +51,7 @@ public class ApiDiscoveryTools {
     private final UnifiedApiService unifiedApiService;
     private final ObjectMapper objectMapper;
     private final es.alesqui.intelligence.service.chat.tools.support.InspectionPolicyService inspectionPolicy;
-    private final ApiVisibilityService apiVisibilityService;
+    private final ApiGroupLinkService apiGroupLinkService;
     private final UserService userService;
 
     /**
@@ -74,7 +74,7 @@ public class ApiDiscoveryTools {
                     ? (String) toolContext.getContext().get("userId")
                     : null;
 
-            var apis = apiVisibilityService.listVisibleApis(userId).collectList().block(Duration.ofSeconds(10));
+            var apis = apiGroupLinkService.listVisibleApis(userId).collectList().block(Duration.ofSeconds(10));
             if (apis == null || apis.isEmpty()) {
                 if (sink != null) sink.tryEmitNext(SseEvent.status("No APIs found."));
                 return "No available APIs were found.";
@@ -117,8 +117,12 @@ public class ApiDiscoveryTools {
                 return "Error: No API was found with the name: " + apiName;
             }
             // Access control: verify visibility for current user
-            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
-            Boolean allowed = apiVisibilityService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
+            // Resolve current user id from tool context (passed from security context)
+            String userId = toolContext != null && toolContext.getContext() != null
+                    ? (String) toolContext.getContext().get("userId")
+                    : null;
+
+            Boolean allowed = apiGroupLinkService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
             if (allowed == null || !allowed) {
                 return "Error: You don't have permission to view endpoints for API: " + apiName;
             }
@@ -172,8 +176,12 @@ public class ApiDiscoveryTools {
                 return "Error: No API found with name: " + apiName;
             }
 
-            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
-            Boolean allowed = apiVisibilityService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
+            // Resolve current user id from tool context (passed from security context)
+            String userId = toolContext != null && toolContext.getContext() != null
+                    ? (String) toolContext.getContext().get("userId")
+                    : null;
+                    
+            Boolean allowed = apiGroupLinkService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
             if (allowed == null || !allowed) {
                 return "Error: You don't have permission to inspect endpoints for API: " + apiName;
             }

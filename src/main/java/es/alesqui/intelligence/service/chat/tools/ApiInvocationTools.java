@@ -24,7 +24,7 @@ import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
 import es.alesqui.intelligence.service.UnifiedApiService;
-import es.alesqui.intelligence.service.access.ApiVisibilityService;
+import es.alesqui.intelligence.service.access.ApiGroupLinkService;
 import es.alesqui.intelligence.service.api.ApiExecutionService;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.getOperationIdOrDefault;
 import static es.alesqui.intelligence.service.chat.tools.support.EndpointSupport.normalizePath;
@@ -58,7 +58,7 @@ public class ApiInvocationTools {
     private final ApiExecutionService apiExecutionService;
     private final ObjectMapper objectMapper;
     private final es.alesqui.intelligence.service.chat.tools.support.InspectionPolicyService inspectionPolicy;
-    private final ApiVisibilityService apiVisibilityService;
+    private final ApiGroupLinkService apiGroupLinkService;
     private final UserService userService;
 
     /**
@@ -98,8 +98,11 @@ public class ApiInvocationTools {
             if (api == null) throw new ApiExecutionException("No API found with name: " + apiName);
 
             // Access control: verify visibility for current user
-            String userId = userService.getCurrentUserIdBlocking(Duration.ofSeconds(5));
-            Boolean allowed = apiVisibilityService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
+            // Resolve current user id from tool context (passed from security context)
+            String userId = toolContext != null && toolContext.getContext() != null
+                    ? (String) toolContext.getContext().get("userId")
+                    : null;
+            Boolean allowed = apiGroupLinkService.canAccess(userId, api.getId()).block(Duration.ofSeconds(5));
             if (allowed == null || !allowed) {
                 return createInsufficientPrivilegesResponse(apiName, operationId);
             }

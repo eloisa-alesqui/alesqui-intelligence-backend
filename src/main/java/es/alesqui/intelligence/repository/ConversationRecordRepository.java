@@ -111,4 +111,61 @@ public interface ConversationRecordRepository extends ReactiveMongoRepository<Co
      */
     Mono<Long> countByStatusInAndUsernameContainsIgnoreCase(
             List<ConversationStatus> statuses, String username);
+    
+    /**
+     * Finds all ConversationRecords that match any of the provided statuses
+     * AND whose username is in the given list, ordered by timestamp descending.
+     * * This query is used for group-based filtering in the IT "Inbox" view.
+     *
+     * @param statuses A list of ConversationStatus enums to filter by.
+     * @param usernames A list of usernames to filter by.
+     * @param pageable A Pageable object containing pagination (page, size) and
+     * sorting information.
+     * @return A Flux emitting the ConversationRecords for the requested page.
+     */
+    Flux<ConversationRecord> findByStatusInAndUsernameInOrderByTimestampDesc(
+            List<ConversationStatus> statuses, List<String> usernames, Pageable pageable);
+    
+    /**
+     * Counts the total number of ConversationRecords that match any of the
+     * provided statuses AND whose username is in the given list.
+     * * This query is used to calculate pagination totals for group-based filtering.
+     *
+     * @param statuses A list of ConversationStatus enums to count.
+     * @param usernames A list of usernames to count by.
+     * @return A Mono emitting the total count as a Long.
+     */
+    Mono<Long> countByStatusInAndUsernameIn(
+            List<ConversationStatus> statuses, List<String> usernames);
+    
+    /**
+     * Finds all ConversationRecords that match any of the provided statuses,
+     * whose username is in the given list, AND whose username contains the search string
+     * (case-insensitive), ordered by timestamp descending.
+     * * This query combines group-based filtering with username search.
+     *
+     * @param statuses A list of ConversationStatus enums to filter by.
+     * @param usernames A list of usernames to filter by (group membership).
+     * @param usernameSearch The username string to search for (case-insensitive contains).
+     * @param pageable A Pageable object containing pagination (page, size) and
+     * sorting information.
+     * @return A Flux emitting the ConversationRecords for the requested page.
+     */
+    Flux<ConversationRecord> findByStatusInAndUsernameInAndUsernameContainsIgnoreCaseOrderByTimestampDesc(
+            List<ConversationStatus> statuses, List<String> usernames, String usernameSearch, Pageable pageable);
+    
+    /**
+     * Counts the total number of ConversationRecords that match any of the
+     * provided statuses, whose username is in the given list, AND whose username
+     * contains the search string (case-insensitive).
+     * * This query is used for pagination with combined group and search filtering.
+     *
+     * @param statuses A list of ConversationStatus enums to count.
+     * @param usernames A list of usernames to filter by (group membership).
+     * @param usernameSearch The username string to search for (case-insensitive contains).
+     * @return A Mono emitting the total count as a Long.
+     */
+    Mono<Long> countByStatusInAndUsernameInAndUsernameContainsIgnoreCase(
+            List<ConversationStatus> statuses, List<String> usernames, String usernameSearch);
 }
+

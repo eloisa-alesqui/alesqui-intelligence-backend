@@ -9,6 +9,8 @@ import es.alesqui.intelligence.model.conversation.ConversationRecord;
 import es.alesqui.intelligence.model.conversation.ConversationStatus;
 import es.alesqui.intelligence.repository.ConversationRecordRepository;
 import es.alesqui.intelligence.security.SecurityUtils;
+import es.alesqui.intelligence.service.access.GroupMembershipService;
+import es.alesqui.intelligence.service.identity.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -40,6 +42,8 @@ import java.util.List;
 public class ConversationService {
 
     private final ConversationRecordRepository repository;
+    private final GroupMembershipService groupMembershipService;
+    private final UserService userService;
 
     /**
      * Saves a complete user interaction (request and response) to the database.
@@ -232,6 +236,9 @@ public class ConversationService {
      * Retrieves a paginated list of diagnostic tickets based on their status.
      * * This method is designed to populate the "Inbox" view for the IT
      * Diagnostic Panel.
+     * * If the caller is not a SUPERADMIN, the results are filtered to only show
+     * tickets from users who belong to the same groups as the caller.
+     * * SUPERADMIN users can see all tickets regardless of group membership.
      * * It performs two database queries: one to fetch the paginated data and
      * another to get the total count for pagination metadata.
      *
@@ -242,36 +249,127 @@ public class ConversationService {
      * and pagination details.
      */
     public Mono<Page<DiagnosticTicketDTO>> getTickets(List<ConversationStatus> statuses, String username, Pageable pageable) {
-    	
-    	Flux<ConversationRecord> pageQuery;
+        
+        // First, get the current user and check if they are a SUPERADMIN
+        return userService.getCurrentUser()
+            .flatMap(currentUser -> {
+                boolean isSuperAdmin = currentUser.getRoles() != null && 
+                    currentUser.getRoles().contains(es.alesqui.intelligence.model.core.enums.Role.ROLE_SUPERADMIN);
+                
+                if (isSuperAdmin) {
+                    // SUPERADMIN can see all tickets
+                    return executeTicketsQuery(statuses, username, pageable, null);
+                } else {
+                    // Non-SUPERADMIN: filter by group membership
+                    return filterTicketsByGroups(currentUser.getId(), statuses, username, pageable);
+                }
+            });
+    }
+    
+    /**
+     * Filters tickets to only show those from users who share at least one group
+     * with the calling user.
+     */
+    private Mono<Page<DiagnosticTicketDTO>> filterTicketsByGroups(
+            String currentUserId, 
+            List<ConversationStatus> statuses, 
+            String username, 
+            Pageable pageable) {
+        
+        // 1. Get all groups the current user belongs to (via GroupMembershipService)
+        return groupMembershipService.getGroupIdsByUserId(currentUserId)
+            .collectList()
+            .flatMap(currentUserGroupIds -> {
+                if (currentUserGroupIds.isEmpty()) {
+                    // User belongs to no groups, return empty result
+                    log.debug("User {} has no group memberships, returning empty ticket list", currentUserId);
+                    return Mono.just(PageableExecutionUtils.getPage(List.of(), pageable, () -> 0L));
+                }
+                
+                // 2. Get all users who belong to at least one of those groups (via GroupMembershipService)
+                return groupMembershipService.getUserIdsByGroupIds(currentUserGroupIds)
+                    .collectList()
+                    .flatMap(groupMemberUserIds -> {
+                        if (groupMemberUserIds.isEmpty()) {
+                            // No other users in these groups
+                            log.debug("No users found in groups {}, returning empty ticket list", currentUserGroupIds);
+                            return Mono.just(PageableExecutionUtils.getPage(List.of(), pageable, () -> 0L));
+                        }
+                        
+                        // 3. Convert user IDs to usernames using UserService (proper layer separation)
+                        return userService.getUsernamesByIds(groupMemberUserIds)
+                            .collectList()
+                            .flatMap(allowedUsernames -> {
+                                if (allowedUsernames.isEmpty()) {
+                                    log.debug("No usernames found for user IDs {}", groupMemberUserIds);
+                                    return Mono.just(PageableExecutionUtils.getPage(List.of(), pageable, () -> 0L));
+                                }
+                                
+                                log.debug("User {} can see tickets from {} users in shared groups", 
+                                    currentUserId, allowedUsernames.size());
+                                
+                                // 4. Execute the query with the allowed usernames
+                                return executeTicketsQuery(statuses, username, pageable, allowedUsernames);
+                            });
+                    });
+            });
+    }
+    
+    /**
+     * Executes the actual database query to fetch tickets.
+     * @param allowedUsernames If not null, restricts results to these usernames (group filtering).
+     */
+    private Mono<Page<DiagnosticTicketDTO>> executeTicketsQuery(
+            List<ConversationStatus> statuses, 
+            String usernameSearch, 
+            Pageable pageable,
+            List<String> allowedUsernames) {
+        
+        Flux<ConversationRecord> pageQuery;
         Mono<Long> countQuery;
-
-        if (StringUtils.isBlank(username)) {
-            pageQuery = repository.findByStatusInOrderByTimestampDesc(statuses, pageable);
-            countQuery = repository.countByStatusIn(statuses);
+        
+        // Determine which repository method to use based on filters
+        if (allowedUsernames == null) {
+            // SUPERADMIN path: no group filtering
+            if (StringUtils.isBlank(usernameSearch)) {
+                pageQuery = repository.findByStatusInOrderByTimestampDesc(statuses, pageable);
+                countQuery = repository.countByStatusIn(statuses);
+            } else {
+                pageQuery = repository.findByStatusInAndUsernameContainsIgnoreCaseOrderByTimestampDesc(
+                    statuses, usernameSearch, pageable);
+                countQuery = repository.countByStatusInAndUsernameContainsIgnoreCase(statuses, usernameSearch);
+            }
         } else {
-            pageQuery = repository.findByStatusInAndUsernameContainsIgnoreCaseOrderByTimestampDesc(statuses, username, pageable);
-            countQuery = repository.countByStatusInAndUsernameContainsIgnoreCase(statuses, username);
+            // Group-filtered path
+            if (StringUtils.isBlank(usernameSearch)) {
+                pageQuery = repository.findByStatusInAndUsernameInOrderByTimestampDesc(
+                    statuses, allowedUsernames, pageable);
+                countQuery = repository.countByStatusInAndUsernameIn(statuses, allowedUsernames);
+            } else {
+                pageQuery = repository.findByStatusInAndUsernameInAndUsernameContainsIgnoreCaseOrderByTimestampDesc(
+                    statuses, allowedUsernames, usernameSearch, pageable);
+                countQuery = repository.countByStatusInAndUsernameInAndUsernameContainsIgnoreCase(
+                    statuses, allowedUsernames, usernameSearch);
+            }
         }
         
-    	Flux<DiagnosticTicketDTO> ticketsFlux = pageQuery
-    	        .map(record -> DiagnosticTicketDTO.builder()
-    	            .recordId(record.getId())
-    	            .conversationId(record.getConversationId())
-    	            .username(record.getUsername())
-    	            .timestamp(record.getTimestamp())
-    	            .status(record.getStatus())
-    	            .userPrompt(record.getUserPrompt())
-    	            .userFeedbackComment(record.getUserFeedbackComment())
-    	            .build()
-    	        );
-    	
-    	return Mono.zip(ticketsFlux.collectList(), countQuery)
+        // Map records to DTOs
+        Flux<DiagnosticTicketDTO> ticketsFlux = pageQuery
+            .map(record -> DiagnosticTicketDTO.builder()
+                .recordId(record.getId())
+                .conversationId(record.getConversationId())
+                .username(record.getUsername())
+                .timestamp(record.getTimestamp())
+                .status(record.getStatus())
+                .userPrompt(record.getUserPrompt())
+                .userFeedbackComment(record.getUserFeedbackComment())
+                .build()
+            );
+        
+        return Mono.zip(ticketsFlux.collectList(), countQuery)
             .map((Tuple2<List<DiagnosticTicketDTO>, Long> tuple) -> { 
-                
                 List<DiagnosticTicketDTO> list = tuple.getT1();
                 long totalCount = tuple.getT2(); 
-
                 return PageableExecutionUtils.getPage(list, pageable, () -> totalCount);
             });
     }

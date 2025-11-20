@@ -1,5 +1,7 @@
 package es.alesqui.intelligence.repository;
 
+import java.util.List;
+
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import org.springframework.stereotype.Repository;
 
@@ -27,6 +29,13 @@ public interface GroupMembershipRepository extends ReactiveMongoRepository<Group
      * @return Flux of memberships.
      */
     Flux<GroupMembership> findByGroupId(String groupId);
+    
+    /**
+     * Lists all group memberships for any of the specified groups.
+     * @param groupIds List of group IDs.
+     * @return Flux of memberships.
+     */
+    Flux<GroupMembership> findByGroupIdIn(List<String> groupIds);
 
     /**
      * Checks whether a membership exists for a given user and group pair.

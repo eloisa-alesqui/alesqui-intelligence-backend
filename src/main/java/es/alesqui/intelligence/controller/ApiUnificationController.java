@@ -14,6 +14,8 @@ import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.service.PostmanService;
 import es.alesqui.intelligence.service.SwaggerService;
 import es.alesqui.intelligence.service.UnifiedApiService;
+import es.alesqui.intelligence.service.access.ApiGroupLinkService;
+import es.alesqui.intelligence.service.identity.UserService;
 import es.alesqui.intelligence.service.unification.ApiUnificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +32,8 @@ public class ApiUnificationController {
     private final SwaggerService swaggerService;
     private final PostmanService postmanService;
     private final UnifiedApiService unifiedApiService;
+    private final ApiGroupLinkService apiGroupLinkService;
+    private final UserService userService;
 
     /**
      * Unifies Swagger and Postman documents by API name and saves the unified document.
@@ -105,16 +109,21 @@ public class ApiUnificationController {
     }
     
     /**
-     * Retrieves all Unified Api documents from the database.
+     * Retrieves all visible Unified Api documents from the database.
+     * Only returns APIs that the current user has permission to access based on group membership.
      * 
-     * @return a Flux containing all Unified Api documents
+     * @return a Flux containing all visible Unified Api documents
      */
     @GetMapping
     public Flux<UnifiedApiDocument> findAll() {
-        log.info("Fetching all Unified Api documents...");
-        return unifiedApiService.findAll()
-                .doOnNext(document -> log.debug("Retrieved document: {}", document.getName()))
-                .doOnError(error -> log.error("Error fetching Unified Api documents", error));
+        log.info("Fetching visible Unified Api documents for current user...");
+        return userService.getCurrentUserId()
+                .flatMapMany(userId -> {
+                    log.debug("Fetching visible APIs for userId: {}", userId);
+                    return apiGroupLinkService.listVisibleApis(userId);
+                })
+                .doOnNext(document -> log.debug("Retrieved visible document: {}", document.getName()))
+                .doOnError(error -> log.error("Error fetching visible Unified Api documents", error));
     }
 
     /**

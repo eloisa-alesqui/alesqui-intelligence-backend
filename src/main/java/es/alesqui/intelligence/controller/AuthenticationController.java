@@ -22,7 +22,7 @@ import es.alesqui.intelligence.dto.security.ValidateTokenResponse;
 import es.alesqui.intelligence.model.core.User;
 import es.alesqui.intelligence.model.core.enums.Role;
 import es.alesqui.intelligence.security.JwtService;
-import es.alesqui.intelligence.service.access.AccessAdminService;
+import es.alesqui.intelligence.service.access.UserManagementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,8 +39,7 @@ public class AuthenticationController {
 
     private final ReactiveAuthenticationManager authenticationManager;
     private final JwtService jwtService;
-    private final AccessAdminService accessAdminService;
-
+    private final UserManagementService userManagementService;
     /**
      * Handles the user login request.
      *
@@ -93,7 +92,7 @@ public class AuthenticationController {
     public Mono<ValidateTokenResponse> validateToken(@Valid @RequestBody ValidateTokenRequest request) {
         log.debug("[Auth] Validating activation token");
         
-        return accessAdminService.validateActivationToken(request.getToken())
+        return userManagementService.validateActivationToken(request.getToken())
             .map(user -> {
                 String role = user.getRoles().stream()
                     .map(Role::getLabel)
@@ -122,7 +121,7 @@ public class AuthenticationController {
     public Mono<ValidateTokenResponse> validateTokenGet(@RequestParam String token) {
         log.debug("[Auth] Validating activation token via GET");
         
-        return accessAdminService.validateActivationToken(token)
+        return userManagementService.validateActivationToken(token)
             .map(user -> {
                 String role = user.getRoles().stream()
                     .map(Role::getLabel)
@@ -151,7 +150,7 @@ public class AuthenticationController {
     public Mono<ActivateAccountResponse> activateAccount(@Valid @RequestBody ActivateAccountRequest request) {
         log.debug("[Auth] Activating account");
         
-        return accessAdminService.activateAccount(request.getToken(), request.getPassword())
+        return userManagementService.activateAccount(request.getToken(), request.getPassword())
             .map(user -> ActivateAccountResponse.builder()
                 .success(true)
                 .message("Account activated successfully. You can now log in.")
@@ -176,7 +175,7 @@ public class AuthenticationController {
     public Mono<ActivateAccountResponse> resendActivation(@Valid @RequestBody ResendActivationRequest request) {
         log.debug("[Auth] Resending activation email to: {}", request.getEmail());
         
-        return accessAdminService.resendActivationEmail(request.getEmail())
+        return userManagementService.resendActivationEmail(request.getEmail())
             .thenReturn(ActivateAccountResponse.builder()
                 .success(true)
                 .message("Activation email sent successfully. Please check your inbox.")

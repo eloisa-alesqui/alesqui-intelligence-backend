@@ -74,6 +74,9 @@ public class SecurityConfig {
                 .pathMatchers("/api/unification/**").hasAnyRole("IT", "SUPERADMIN", "TRIAL") 
                 .pathMatchers("/api/diagnostics/**").hasAnyRole("IT", "SUPERADMIN", "TRIAL") 
                 
+                // Specific admin endpoints accessible by IT and SUPERADMIN
+                .pathMatchers("/api/admin/apis/*/groups").hasAnyRole("IT", "SUPERADMIN", "TRIAL")
+                
                 // Administrative endpoints restricted to SUPERADMIN role
                 .pathMatchers("/api/admin/**").hasRole("SUPERADMIN")
                 

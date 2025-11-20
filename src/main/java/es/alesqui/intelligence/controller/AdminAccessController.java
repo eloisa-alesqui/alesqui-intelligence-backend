@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import es.alesqui.intelligence.dto.admin.ApiSummaryResponse;
 import es.alesqui.intelligence.dto.admin.AssignApisRequest;
 import es.alesqui.intelligence.dto.admin.AssignGroupsRequest;
+import es.alesqui.intelligence.dto.admin.AssignGroupsToApiRequest;
 import es.alesqui.intelligence.dto.admin.AssignUsersRequest;
 import es.alesqui.intelligence.dto.admin.CreateUserRequest;
 import es.alesqui.intelligence.dto.admin.GroupCreateRequest;
@@ -23,7 +24,10 @@ import es.alesqui.intelligence.model.access.ApiGroupLink;
 import es.alesqui.intelligence.model.access.Group;
 import es.alesqui.intelligence.model.access.GroupMembership;
 import es.alesqui.intelligence.model.core.User;
-import es.alesqui.intelligence.service.access.AccessAdminService;
+import es.alesqui.intelligence.service.access.ApiGroupLinkService;
+import es.alesqui.intelligence.service.access.GroupManagementService;
+import es.alesqui.intelligence.service.access.GroupMembershipService;
+import es.alesqui.intelligence.service.access.UserManagementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Flux;
@@ -41,7 +45,10 @@ import reactor.core.publisher.Mono;
 @Validated
 public class AdminAccessController {
 
-    private final AccessAdminService adminService;
+    private final GroupManagementService groupManagementService;
+    private final GroupMembershipService groupMembershipService;
+    private final ApiGroupLinkService apiGroupLinkService;
+    private final UserManagementService userManagementService;
 
     /**
      * Creates a new group with the specified name and description.
@@ -51,7 +58,7 @@ public class AdminAccessController {
      */
     @PostMapping("/groups")
     public Mono<Group> createGroup(@Valid @RequestBody GroupCreateRequest req) {
-        return adminService.createGroup(req);
+        return groupManagementService.createGroup(req);
     }
 
     /**
@@ -61,7 +68,7 @@ public class AdminAccessController {
      */
     @GetMapping("/groups")
     public Flux<GroupSummaryResponse> listGroups() {
-        return adminService.listGroupsWithCounts();
+        return groupManagementService.listGroupsWithCounts();
     }
 
     /**
@@ -72,7 +79,7 @@ public class AdminAccessController {
      */
     @GetMapping("/groups/{id}")
     public Mono<ResponseEntity<GroupDetailResponse>> getGroupDetail(@PathVariable String id) {
-        return adminService.getGroupDetail(id)
+        return groupManagementService.getGroupDetail(id)
                 .map(ResponseEntity::ok)
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }
@@ -86,7 +93,7 @@ public class AdminAccessController {
      */
     @PatchMapping("/groups/{groupId}")
     public Mono<Group> updateGroup(@PathVariable String groupId, @Valid @RequestBody GroupUpdateRequest req) {
-        return adminService.updateGroup(groupId, req);
+        return groupManagementService.updateGroup(groupId, req);
     }
 
     /**
@@ -97,7 +104,7 @@ public class AdminAccessController {
      */
     @DeleteMapping("/groups/{groupId}")
     public Mono<ResponseEntity<Void>> deleteGroup(@PathVariable String groupId) {
-        return adminService.deleteGroup(groupId).thenReturn(ResponseEntity.noContent().build());
+        return groupManagementService.deleteGroup(groupId).thenReturn(ResponseEntity.noContent().build());
     }
 
     /**
@@ -109,7 +116,7 @@ public class AdminAccessController {
      */
     @PostMapping("/groups/{groupId}/apis")
     public Flux<ApiGroupLink> assignApis(@PathVariable String groupId, @Valid @RequestBody AssignApisRequest req) {
-        return adminService.assignApis(groupId, req);
+        return apiGroupLinkService.assignApis(groupId, req);
     }
 
     /**
@@ -121,7 +128,7 @@ public class AdminAccessController {
      */
     @DeleteMapping("/groups/{groupId}/apis/{apiId}")
     public Mono<ResponseEntity<Void>> removeApiFromGroup(@PathVariable String groupId, @PathVariable String apiId) {
-        return adminService.removeApiFromGroup(groupId, apiId)
+        return apiGroupLinkService.removeApiFromGroup(groupId, apiId)
                 .thenReturn(ResponseEntity.noContent().build());
     }
 
@@ -134,7 +141,7 @@ public class AdminAccessController {
      */
     @PostMapping("/groups/{groupId}/users")
     public Flux<GroupMembership> assignUsers(@PathVariable String groupId, @Valid @RequestBody AssignUsersRequest req) {
-        return adminService.assignUsers(groupId, req);
+        return groupMembershipService.assignUsers(groupId, req);
     }
 
     /**
@@ -146,7 +153,7 @@ public class AdminAccessController {
      */
     @DeleteMapping("/groups/{groupId}/users/{userId}")
     public Mono<ResponseEntity<Void>> removeUserFromGroup(@PathVariable String groupId, @PathVariable String userId) {
-        return adminService.removeUserFromGroup(groupId, userId)
+        return groupMembershipService.removeUserFromGroup(groupId, userId)
                 .thenReturn(ResponseEntity.noContent().build());
     }
 
@@ -159,7 +166,7 @@ public class AdminAccessController {
      */
     @PatchMapping("/users/{username}/roles")
     public Mono<User> updateUserRoles(@PathVariable String username, @Valid @RequestBody UpdateUserRolesRequest req) {
-        return adminService.updateUserRoles(username, req);
+        return userManagementService.updateUserRoles(username, req);
     }
 
     /**
@@ -170,7 +177,7 @@ public class AdminAccessController {
      */
     @PostMapping("/users")
     public Mono<User> createUser(@Valid @RequestBody CreateUserRequest req) {
-        return adminService.createUser(req);
+        return userManagementService.createUser(req);
     }
 
     /**
@@ -180,7 +187,7 @@ public class AdminAccessController {
      */
     @GetMapping("/users")
     public Flux<UserSummaryResponse> listUsers() {
-        return adminService.listAllUsers();
+        return userManagementService.listAllUsers();
     }
 
     /**
@@ -191,7 +198,7 @@ public class AdminAccessController {
      */
     @GetMapping("/users/{userId}")
     public Mono<ResponseEntity<UserDetailResponse>> getUserDetail(@PathVariable String userId) {
-        return adminService.getUserDetail(userId)
+        return userManagementService.getUserDetail(userId)
                 .map(ResponseEntity::ok)
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }
@@ -205,7 +212,7 @@ public class AdminAccessController {
      */
     @PatchMapping("/users/{userId}/roles")
     public Mono<User> updateUserRolesById(@PathVariable String userId, @Valid @RequestBody UpdateUserRolesRequest req) {
-        return adminService.updateUserRolesById(userId, req);
+        return userManagementService.updateUserRolesById(userId, req);
     }
 
     /**
@@ -219,7 +226,7 @@ public class AdminAccessController {
      */
     @PatchMapping("/users/{userId}")
     public Mono<ResponseEntity<UpdateUserResponse>> updateUser(@PathVariable String userId, @Valid @RequestBody UpdateUserRequest req) {
-        return adminService.updateUser(userId, req)
+        return userManagementService.updateUser(userId, req)
                 .map(ResponseEntity::ok);
     }
 
@@ -232,7 +239,7 @@ public class AdminAccessController {
      */
     @PostMapping("/users/{userId}/groups")
     public Mono<ResponseEntity<Void>> assignGroupsToUser(@PathVariable String userId, @Valid @RequestBody AssignGroupsRequest req) {
-        return adminService.assignGroupsToUser(userId, req)
+        return groupMembershipService.assignGroupsToUser(userId, req)
                 .collectList()
                 .thenReturn(ResponseEntity.noContent().<Void>build());
     }
@@ -246,7 +253,7 @@ public class AdminAccessController {
      */
     @DeleteMapping("/users/{userId}/groups/{groupId}")
     public Mono<ResponseEntity<Void>> removeGroupFromUser(@PathVariable String userId, @PathVariable String groupId) {
-        return adminService.removeGroupFromUser(userId, groupId)
+        return groupMembershipService.removeGroupFromUser(userId, groupId)
                 .thenReturn(ResponseEntity.noContent().<Void>build());
     }
 
@@ -262,7 +269,7 @@ public class AdminAccessController {
     @DeleteMapping("/users/{userId}")
     public Mono<ResponseEntity<Void>> deleteUser(@PathVariable String userId, Authentication authentication) {
         String currentUsername = authentication.getName();
-        return adminService.deleteUser(userId, currentUsername)
+        return userManagementService.deleteUser(userId, currentUsername)
                 .thenReturn(ResponseEntity.noContent().<Void>build());
     }
 
@@ -273,6 +280,29 @@ public class AdminAccessController {
      */
     @GetMapping("/apis/orphans")
     public Flux<ApiSummaryResponse> getOrphanApis() {
-        return adminService.listOrphanApis();
+        return apiGroupLinkService.listOrphanApis();
+    }
+
+    /**
+     * Assigns multiple groups to an API. Operation is idempotent.
+     *
+     * @param apiId the API ID
+     * @param req the request containing group IDs to assign
+     * @return a Flux of created API-group links
+     */
+    @PostMapping("/apis/{apiId}/groups")
+    public Flux<ApiGroupLink> assignGroupsToApi(@PathVariable String apiId, @Valid @RequestBody AssignGroupsToApiRequest req) {
+        return apiGroupLinkService.assignGroupsToApi(apiId, req);
+    }
+
+    /**
+     * Retrieves all groups linked to a specific API.
+     *
+     * @param apiId the API ID
+     * @return a Flux of GroupSummaryResponse for groups linked to the API
+     */
+    @GetMapping("/apis/{apiId}/groups")
+    public Flux<GroupSummaryResponse> getGroupsForApi(@PathVariable String apiId) {
+        return apiGroupLinkService.getGroupsForApi(apiId);
     }
 }
