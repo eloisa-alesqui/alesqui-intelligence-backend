@@ -361,22 +361,7 @@ public class SpringAIService {
 
 						// If the model wrote an Act in text but did not emit a tool call, nudge once to
 						// produce the tool call.
-						if (!chatResponse.hasToolCalls()) {
-							String txt = StringUtils.defaultIfEmpty(chatResponse.getResult().getOutput().getText(), "");
-							if (txt.contains("Act:") || txt.matches("(?s).*(?i)call `.+`.*")) {
-								statusSink.tryEmitNext(
-										SseEvent.status("Awaiting tool call; asking the model to emit it now..."));
-								turnHistory.add(new SystemMessage(
-										"You indicated an Act step. Emit the tool call now using one of the registered tools. Do not include any other text. One tool call only."));
-								currentPrompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
-								chatResponse = chatClient.prompt(currentPrompt)
-										.toolContext(toolContext.getContext())
-										.call()
-										.chatResponse();
-								chatResponse = ensureChatResponse(chatResponse, "nudge tool call");
-								turnHistory.add(chatResponse.getResult().getOutput());
-							}
-						}
+						chatResponse = enforceToolCallIfHallucinated(chatResponse, turnHistory, chatClient, chatOptions, toolContext, statusSink);
 
 						// --- 7. Main ReAct (Reason-Act) Loop ---
 						while (chatResponse.hasToolCalls()) {
@@ -559,6 +544,10 @@ public class SpringAIService {
 
 							// Add the next assistant response to the turn history.
 							turnHistory.add(chatResponse.getResult().getOutput());
+
+							// If the model wrote an Act in text but did not emit a tool call, nudge once to
+							// produce the tool call.
+							chatResponse = enforceToolCallIfHallucinated(chatResponse, turnHistory, chatClient, chatOptions, toolContext, statusSink);
 						}
 
 						// --- 9. Finalize the Turn ---
@@ -604,6 +593,43 @@ public class SpringAIService {
 					}
 				}).subscribeOn(Schedulers.boundedElastic())); // Ensure the callable runs on the correct thread pool.
 	}
+
+	/**
+	 * Checks if the response contains a text-based tool call without a technical tool execution.
+	 * If so, sends a system message to force the model to execute the tool properly.
+	 */
+	private ChatResponse enforceToolCallIfHallucinated(
+			ChatResponse initialResponse, 
+			List<Message> turnHistory, 
+			ChatClient chatClient, 
+			ChatOptions chatOptions,
+			ToolContext toolContext,
+			Sinks.Many<SseEvent> statusSink) {
+
+		if (!initialResponse.hasToolCalls()) {
+			String txt = StringUtils.defaultIfEmpty(initialResponse.getResult().getOutput().getText(), "");
+			if (txt.contains("Act:") || txt.matches("(?s).*(?i)call `.+`.*")) {
+				
+				statusSink.tryEmitNext(SseEvent.status("Aligning tool execution..."));
+				
+				turnHistory.add(new SystemMessage(
+					"You indicated an Act step. Emit the tool call now using one of the registered tools. Do not include any other text."));
+				
+				Prompt prompt = new Prompt(new ArrayList<>(turnHistory), chatOptions);
+				ChatResponse correctedResponse = chatClient.prompt(prompt)
+						.toolContext(toolContext.getContext())
+						.call()
+						.chatResponse();
+				
+				// Add the corrected response to history so the conversation stays consistent
+				turnHistory.add(correctedResponse.getResult().getOutput());
+				
+				return correctedResponse;
+			}
+		}
+		return initialResponse;
+	}
+
 
 	/**
 	 * Tests the connection to the AI model by sending a predefined prompt in a
