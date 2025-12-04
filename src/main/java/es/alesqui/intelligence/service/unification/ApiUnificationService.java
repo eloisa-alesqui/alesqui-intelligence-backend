@@ -205,39 +205,47 @@ public class ApiUnificationService {
         }
 
         String systemPrompt = """
-            You are a Business Analyst expert at translating technical API functions into clear, 
-            high-level business capabilities for non-technical users. You understand both the 
-            technical aspects of APIs and how to communicate their value in business terms.
+            You are an expert UX Writer and Product Designer for AI Assistants. 
+            Your goal is to analyze API technical specifications and convert them into 
+            short, punchy "Action Tags" that represent what a user can ask the AI to do.
+            You avoid corporate jargon and focus on direct, imperative actions.
             """;
 
         String userPrompt = String.format(
             """
-            Analyze the following API specification and create 3-4 high-level business capabilities 
-            that summarize what a user can accomplish with this API.
+            Analyze the following API endpoints and generate a list of "Action Capabilities" 
+            that act as concise prompts for the user.
 
-            **--- STRICT REQUIREMENTS ---**
-            1. **CAPABILITY FOCUS:** Describe what users can DO or ACHIEVE, not specific questions they can ask
-            2. **ACTION VERBS:** Start each capability with action verbs like: "Monitor", "Manage", "Analyze", "Track", "Retrieve", "Generate", "Control"
-            3. **BUSINESS VALUE:** Focus on business outcomes and value, not technical implementation
-            4. **COMPREHENSIVE:** Consider all CRUD operations (Create, Read, Update, Delete) when present
-            5. **CONCISE:** Each capability should be 1-2 sentences maximum
-            6. **JSON FORMAT:** Return a JSON object with "category" and "capabilities" fields
+            **--- STRICT FORMATTING RULES ---**
+            1. **SHORT & PUNCHY:** Each capability must be **2 to 5 words maximum**.
+            2. **VERB FIRST:** Start with strong, natural verbs (e.g., "Find", "Compare", "Calculate", "Show", "Check").
+            3. **NO JARGON:** Do NOT use technical terms like "GET", "Endpoint", "Retrieve", "Return", "Object".
+            4. **VARIETY:** Do not repeat the same verb for every item if possible.
+            5. **QUANTITY:** Generate between 4 to 6 distinct capabilities.
 
-            **--- GOOD EXAMPLES ---**
-            ✅ "Monitor real-time system performance and health metrics"
-            ✅ "Manage customer accounts and subscription settings"  
-            ✅ "Analyze sales trends and generate financial reports"
-            ✅ "Control user access permissions and security settings"
+            **--- EXAMPLES OF TRANSFORMATION ---**
+            
+            *Input:* GET /countries/{name} (Returns population, area, capital)
+            *Bad:* "Retrieve comprehensive country data for analysis."
+            *Good:* "Check Country Facts" or "Compare Populations"
 
-            **--- BAD EXAMPLES ---**
-            ❌ "What is the system status?" (This is a question, not a capability)
-            ❌ "GET /users endpoint" (This is technical, not business-focused)
-            ❌ "Retrieve data" (Too vague, lacks business context)
+            *Input:* GET /artworks/search (Finds art by query)
+            *Bad:* "Search the database for artistic content."
+            *Good:* "Find Artworks" or "Discover Artists"
 
+            *Input:* POST /payment/process
+            *Bad:* "Process a financial transaction."
+            *Good:* "Send Payment"
+
+            **--- INPUT DATA ---**
             **API NAME:** %s
+            **ENDPOINTS:** %s
 
-            **DETAILED ENDPOINT ANALYSIS:**%s
-
+            **--- OUTPUT FORMAT (JSON) ---**
+            Return a JSON object with:
+            - "category": A short, 2-3 word category name for this tool (e.g., "Global Data", "Art Finder").
+            - "capabilities": A list of strings (the action tags).
+            
             Generate the JSON response now:
             """, 
             apiName, 
