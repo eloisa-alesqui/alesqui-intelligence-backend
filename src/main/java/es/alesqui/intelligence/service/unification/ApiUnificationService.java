@@ -221,7 +221,10 @@ public class ApiUnificationService {
             2. **VERB FIRST:** Start with strong, natural verbs (e.g., "Find", "Compare", "Calculate", "Show", "Check").
             3. **NO JARGON:** Do NOT use technical terms like "GET", "Endpoint", "Retrieve", "Return", "Object".
             4. **VARIETY:** Do not repeat the same verb for every item if possible.
-            5. **QUANTITY:** Generate between 4 to 6 distinct capabilities.
+            5. **QUANTITY:** Generate between 3 to 10 capabilities based on the API complexity.
+                - If the API is small (1-2 endpoints), generate only 3-4 strong actions.
+                - If the API is large, generate up to 10 distinct actions.
+                - **CRITICAL:** Do NOT create redundant synonyms just to fill space. Quality > Quantity.
 
             **--- EXAMPLES OF TRANSFORMATION ---**
             
