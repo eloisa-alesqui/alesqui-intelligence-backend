@@ -131,17 +131,16 @@ public class ApiDiscoveryTools {
             }
 
             // Filter endpoints based on readOnly configuration
+            boolean isReadOnly = api.getApiConfiguration() != null && api.getApiConfiguration().isReadOnly();
             var endpointsStream = api.getEndpoints().stream();
-            if (api.getApiConfiguration() != null && api.getApiConfiguration().isReadOnly()) {
+            if (isReadOnly) {
                 endpointsStream = endpointsStream.filter(e -> "GET".equalsIgnoreCase(e.getMethod()));
             }
             var filteredEndpoints = endpointsStream.toList();
 
             if (filteredEndpoints.isEmpty()) {
                 return "The API '" + apiName + "' has no available endpoints." +
-                       (api.getApiConfiguration() != null && api.getApiConfiguration().isReadOnly() 
-                           ? " (API is configured as read-only, only GET endpoints are available)" 
-                           : "");
+                       (isReadOnly ? " (API is configured as read-only, only GET endpoints are available)" : "");
             }
 
             if (sink != null) sink.tryEmitNext(SseEvent.status("Found " + filteredEndpoints.size() + " endpoints for " + apiName + "."));
