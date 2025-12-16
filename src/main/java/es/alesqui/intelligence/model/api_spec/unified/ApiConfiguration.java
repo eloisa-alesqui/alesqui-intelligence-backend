@@ -72,6 +72,15 @@ public class ApiConfiguration {
     @Builder.Default
     private AuthenticationConfig auth = AuthenticationConfig.builder().build();
 
+    /**
+     * If true, only read-only operations (GET endpoints) will be available.
+     * This is useful for restricting access to data-modifying operations.
+     */
+    @Field("readOnly")
+    @JsonProperty("readOnly")
+    @Builder.Default
+    private boolean readOnly = false;
+
     // --- Nested Class for Authentication ---
 
     /**
