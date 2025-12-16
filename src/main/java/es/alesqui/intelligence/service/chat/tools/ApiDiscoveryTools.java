@@ -130,8 +130,21 @@ public class ApiDiscoveryTools {
                 return "The API '" + apiName + "' has no available endpoints.";
             }
 
-            if (sink != null) sink.tryEmitNext(SseEvent.status("Found " + api.getEndpoints().size() + " endpoints for " + apiName + "."));
-            return "Available endpoints for API '" + apiName + "':\n" + api.getEndpoints().stream()
+            // Filter endpoints based on readOnly configuration
+            boolean isReadOnly = api.getApiConfiguration() != null && api.getApiConfiguration().isReadOnly();
+            var endpointsStream = api.getEndpoints().stream();
+            if (isReadOnly) {
+                endpointsStream = endpointsStream.filter(e -> "GET".equalsIgnoreCase(e.getMethod()));
+            }
+            var filteredEndpoints = endpointsStream.toList();
+
+            if (filteredEndpoints.isEmpty()) {
+                return "The API '" + apiName + "' has no available endpoints." +
+                       (isReadOnly ? " (API is configured as read-only, only GET endpoints are available)" : "");
+            }
+
+            if (sink != null) sink.tryEmitNext(SseEvent.status("Found " + filteredEndpoints.size() + " endpoints for " + apiName + "."));
+            return "Available endpoints for API '" + apiName + "':\n" + filteredEndpoints.stream()
                 .map(e -> {
                     String displayOp = getOperationIdOrDefault(e);
                     String summary = StringUtils.isNotBlank(e.getSummary()) ? e.getSummary() : (e.getDescription() != null ? e.getDescription() : "");
