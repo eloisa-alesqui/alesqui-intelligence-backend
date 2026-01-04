@@ -15,6 +15,7 @@ import es.alesqui.intelligence.dto.admin.GroupCreateRequest;
 import es.alesqui.intelligence.dto.admin.GroupDetailResponse;
 import es.alesqui.intelligence.dto.admin.GroupUpdateRequest;
 import es.alesqui.intelligence.dto.admin.GroupSummaryResponse;
+import es.alesqui.intelligence.dto.admin.TrialUserResponse;
 import es.alesqui.intelligence.dto.admin.UpdateUserRolesRequest;
 import es.alesqui.intelligence.dto.admin.UpdateUserRequest;
 import es.alesqui.intelligence.dto.admin.UpdateUserResponse;
@@ -24,10 +25,12 @@ import es.alesqui.intelligence.model.access.ApiGroupLink;
 import es.alesqui.intelligence.model.access.Group;
 import es.alesqui.intelligence.model.access.GroupMembership;
 import es.alesqui.intelligence.model.core.User;
+import es.alesqui.intelligence.model.core.enums.Role;
 import es.alesqui.intelligence.service.access.ApiGroupLinkService;
 import es.alesqui.intelligence.service.access.GroupManagementService;
 import es.alesqui.intelligence.service.access.GroupMembershipService;
 import es.alesqui.intelligence.service.access.UserManagementService;
+import es.alesqui.intelligence.service.trial.TrialRegistrationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Flux;
@@ -49,7 +52,8 @@ public class AdminAccessController {
     private final GroupMembershipService groupMembershipService;
     private final ApiGroupLinkService apiGroupLinkService;
     private final UserManagementService userManagementService;
-
+    private final TrialRegistrationService trialRegistrationService;
+    
     /**
      * Creates a new group with the specified name and description.
      *
@@ -304,5 +308,39 @@ public class AdminAccessController {
     @GetMapping("/apis/{apiId}/groups")
     public Flux<GroupSummaryResponse> getGroupsForApi(@PathVariable String apiId) {
         return apiGroupLinkService.getGroupsForApi(apiId);
+    }
+
+    /**
+     * Lists all trial users with their status and expiration information.
+     * 
+     * Purpose:
+     * - Monitor trial user activity and expiration
+     * - Track trial conversions and usage
+     * - Identify expired trials for cleanup
+     * 
+     * @return a Flux of TrialUserResponse containing trial user details
+     */
+    @GetMapping("/trial-users")
+    public Flux<TrialUserResponse> listTrialUsers() {
+        return trialRegistrationService.listAllTrialUsers()
+            .map(user -> {
+                long daysRemaining = trialRegistrationService.getDaysRemaining(user);
+                boolean isExpired = trialRegistrationService.isTrialExpired(user);
+                
+                return TrialUserResponse.builder()
+                    .id(user.getId())
+                    .email(user.getUsername())
+                    .isActive(user.isActive())
+                    .trialStartDate(user.getTrialStartDate())
+                    .trialEndDate(user.getTrialEndDate())
+                    .daysRemaining(daysRemaining)
+                    .isExpired(isExpired)
+                    .createdAt(user.getCreatedAt())
+                    .workspaceCode(user.getId() != null ? "trial-" + user.getId() : null)
+                    .roles(user.getRoles().stream()
+                        .map(Role::name)
+                        .toList())
+                    .build();
+            });
     }
 }

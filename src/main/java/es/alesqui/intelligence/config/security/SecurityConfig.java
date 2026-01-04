@@ -64,6 +64,7 @@ public class SecurityConfig {
             // Configure authorization rules
             .authorizeExchange(exchanges -> exchanges
                 .pathMatchers("/api/auth/**").permitAll() // Public auth endpoints
+                .pathMatchers("/api/public/**").permitAll() // Public trial registration
                 .pathMatchers("/api/test/**").permitAll()
                 // Allow health/info for platform health checks (Render)
                 .pathMatchers("/actuator/health", "/actuator/info").permitAll()

@@ -86,6 +86,18 @@ public class User implements UserDetails {
      */
     private Instant activationTokenExpiresAt;
 
+    /**
+     * Trial start date. Set when a trial user account is created.
+     * Used to track when the trial period begins.
+     */
+    private Instant trialStartDate;
+
+    /**
+     * Trial expiration date. Set when a trial user account is created.
+     * Typically 14 days after trial start. Used to determine if trial has expired.
+     */
+    private Instant trialEndDate;
+
 
     // --- UserDetails interface implementation ---
 
