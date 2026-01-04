@@ -1,15 +1,11 @@
 package es.alesqui.intelligence.service.chat.tools;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +62,7 @@ class ApiDiscoveryToolsReadOnlyTest {
         // Setup basic tool context
         Map<String, Object> contextMap = new HashMap<>();
         contextMap.put("userId", "test-user-id");
-        toolContext = ToolContext.builder().context(contextMap).build();
+        toolContext = new ToolContext(contextMap);
 
         // Setup test API with multiple endpoints
         testApi = UnifiedApiDocument.builder()
