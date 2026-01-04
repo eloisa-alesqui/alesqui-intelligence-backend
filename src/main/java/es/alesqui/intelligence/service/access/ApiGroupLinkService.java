@@ -13,6 +13,7 @@ import es.alesqui.intelligence.dto.admin.GroupSummaryResponse;
 import es.alesqui.intelligence.model.access.ApiGroupLink;
 import es.alesqui.intelligence.model.access.GroupMembership;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.core.enums.Role;
 import es.alesqui.intelligence.repository.ApiGroupLinkRepository;
 import es.alesqui.intelligence.repository.GroupMembershipRepository;
 import es.alesqui.intelligence.repository.GroupRepository;
@@ -303,6 +304,71 @@ public class ApiGroupLinkService {
                         return anyGroupMatch;
                     });
                 });
+    }
+
+    /**
+     * Checks if a user can modify a specific API.
+     * 
+     * Modification rules:
+     * - SUPERADMIN can modify all APIs
+     * - TRIAL users can only modify APIs they created (where createdBy matches their username)
+     * - IT users can modify APIs they have access to (based on group membership via canAccess)
+     * - BUSINESS users cannot modify any API (returns false)
+     * 
+     * @param username the username of the user attempting to modify
+     * @param apiId the ID of the API to modify
+     * @return Mono<Boolean> true if the user can modify the API, false otherwise
+     */
+    public Mono<Boolean> canModifyApi(String username, String apiId) {
+        if (username == null || apiId == null) {
+            return Mono.just(false);
+        }
+
+        return userRepository.findByUsername(username)
+                .flatMap(user -> {
+                    // SUPERADMIN can modify everything
+                    if (user.getRoles() != null && user.getRoles().contains(Role.ROLE_SUPERADMIN)) {
+                        log.debug("User {} is SUPERADMIN, allowing modification of API {}", username, apiId);
+                        return Mono.just(true);
+                    }
+
+                    // BUSINESS users cannot modify any API
+                    if (user.getRoles() != null && user.getRoles().contains(Role.ROLE_BUSINESS)) {
+                        log.debug("User {} has ROLE_BUSINESS, denying modification of API {}", username, apiId);
+                        return Mono.just(false);
+                    }
+
+                    // Check if user has ROLE_TRIAL
+                    boolean isTrialUser = user.getRoles() != null && user.getRoles().contains(Role.ROLE_TRIAL);
+
+                    if (isTrialUser) {
+                        // TRIAL users can only modify APIs they created
+                        return unifiedApiRepository.findById(apiId)
+                                .map(api -> {
+                                    boolean isOwner = username.equals(api.getCreatedBy());
+                                    if (isOwner) {
+                                        log.debug("TRIAL user {} is owner of API {}, allowing modification", username, apiId);
+                                    } else {
+                                        log.warn("TRIAL user {} is NOT owner of API {} (owner: {}), denying modification", 
+                                                username, apiId, api.getCreatedBy());
+                                    }
+                                    return isOwner;
+                                })
+                                .defaultIfEmpty(false);
+                    }
+
+                    // IT users (and other roles) can modify APIs they have access to
+                    log.debug("User {} checking access-based modification permissions for API {}", username, apiId);
+                    return canAccess(user.getId(), apiId)
+                            .doOnNext(canAccess -> {
+                                if (canAccess) {
+                                    log.debug("User {} has access to API {}, allowing modification", username, apiId);
+                                } else {
+                                    log.debug("User {} does not have access to API {}, denying modification", username, apiId);
+                                }
+                            });
+                })
+                .defaultIfEmpty(false);
     }
 
     /**

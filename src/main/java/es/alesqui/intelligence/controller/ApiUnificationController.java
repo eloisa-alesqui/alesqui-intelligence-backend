@@ -76,8 +76,22 @@ public class ApiUnificationController {
             @RequestBody ApiConfiguration apiConfiguration) {
         
         log.info("Updating configuration for API: {}", apiName);
-        return unifiedApiService.updateApiConfiguration(apiName, apiConfiguration)
-                .map(ResponseEntity::ok) // On success, return 200 OK with the updated document
+        
+        // First find the API to get its ID, then check modification permissions
+        return unifiedApiService.findByName(apiName)
+                .switchIfEmpty(Mono.error(new RuntimeException("API not found: " + apiName)))
+                .flatMap(api -> userService.getCurrentUsername()
+                        .flatMap(username -> apiGroupLinkService.canModifyApi(username, api.getId())
+                                .flatMap(canModify -> {
+                                    if (!canModify) {
+                                        log.warn("User {} attempted to modify API {} but lacks permission", username, apiName);
+                                        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<UnifiedApiDocument>build());
+                                    }
+                                    return unifiedApiService.updateApiConfiguration(apiName, apiConfiguration)
+                                            .map(ResponseEntity::ok);
+                                })
+                        )
+                )
                 .onErrorResume(e -> {
                     log.error("Failed to update configuration for API '{}': {}", apiName, e.getMessage());
                     return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
@@ -103,9 +117,20 @@ public class ApiUnificationController {
         }
 
         log.info("PATCH request to update status for unification id: {}", id);
-        return unifiedApiService.updateApiStatus(id, active)
-                .map(ResponseEntity::ok)
-                .defaultIfEmpty(ResponseEntity.notFound().build());
+        
+        // Check modification permissions before updating
+        return userService.getCurrentUsername()
+                .flatMap(username -> apiGroupLinkService.canModifyApi(username, id)
+                        .flatMap(canModify -> {
+                            if (!canModify) {
+                                log.warn("User {} attempted to modify status of API {} but lacks permission", username, id);
+                                return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<UnifiedApiDocument>build());
+                            }
+                            return unifiedApiService.updateApiStatus(id, active)
+                                    .map(ResponseEntity::ok)
+                                    .defaultIfEmpty(ResponseEntity.notFound().build());
+                        })
+                );
     }
     
     /**
@@ -122,6 +147,7 @@ public class ApiUnificationController {
                     log.debug("Fetching visible APIs for userId: {}", userId);
                     return apiGroupLinkService.listVisibleApis(userId);
                 })
+                .sort((api1, api2) -> api1.getName().compareToIgnoreCase(api2.getName()))
                 .doOnNext(document -> log.debug("Retrieved visible document: {}", document.getName()))
                 .doOnError(error -> log.error("Error fetching visible Unified Api documents", error));
     }
@@ -170,9 +196,20 @@ public class ApiUnificationController {
 	@DeleteMapping("/{id}")
 	public Mono<ResponseEntity<Void>> deleteApi(@PathVariable String id) {
 		log.info("DELETE request received for unification id: {}", id);
-		return unifiedApiService.deleteApi(id)
-				.then(Mono.just(new ResponseEntity<Void>(HttpStatus.NO_CONTENT))) 
-				.defaultIfEmpty(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+        
+        // Check modification permissions before deleting
+        return userService.getCurrentUsername()
+                .flatMap(username -> apiGroupLinkService.canModifyApi(username, id)
+                        .flatMap(canModify -> {
+                            if (!canModify) {
+                                log.warn("User {} attempted to delete API {} but lacks permission", username, id);
+                                return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<Void>build());
+                            }
+                            return unifiedApiService.deleteApi(id)
+                                    .then(Mono.just(new ResponseEntity<Void>(HttpStatus.NO_CONTENT))) 
+                                    .defaultIfEmpty(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+                        })
+                );
 	}
     
     /**
