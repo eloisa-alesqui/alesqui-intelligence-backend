@@ -100,7 +100,7 @@ public class SecurityConfig {
 
         // Allowed origins patterns
         configuration.setAllowedOriginPatterns(List.of("http://localhost:*", "https://localhost:*",
-                "https://*.alesqui.es", "https://*.vercel.app"));
+                "https://*.alesqui.es", "https://*.alesqui.com", "https://*.vercel.app"));
 
         // Allowed methods
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
