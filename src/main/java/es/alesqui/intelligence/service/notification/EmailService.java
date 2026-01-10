@@ -84,6 +84,10 @@ public class EmailService {
                 helper.setSubject(subject);
                 helper.setText(htmlContent, true); // true = HTML format
                 
+                // Disable SendInBlue/Brevo click tracking for security emails
+                message.setHeader("X-Mailin-Tag", "password-reset");
+                message.setHeader("X-Sib-Id", "disable-tracking");
+                
                 mailSender.send(message);
                 
                 log.info("✅ HTML email SUCCESSFULLY SENT to: {}", to);
