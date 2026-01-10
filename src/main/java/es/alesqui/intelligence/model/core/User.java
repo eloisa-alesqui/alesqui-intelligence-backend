@@ -98,6 +98,20 @@ public class User implements UserDetails {
      */
     private Instant trialEndDate;
 
+    /**
+     * Password reset token. Generated when a user requests a password reset.
+     * This token is sent via email and used to verify the password reset request.
+     * Indexed for fast lookups during reset process.
+     */
+    @Indexed
+    private String passwordResetToken;
+
+    /**
+     * Expiration timestamp for the password reset token.
+     * Typically set to 1 hour after token generation for security.
+     */
+    private Instant passwordResetTokenExpiresAt;
+
 
     // --- UserDetails interface implementation ---
 

@@ -22,4 +22,13 @@ public interface UserRepository extends ReactiveMongoRepository<User, String> {
      * empty if the user does not exist.
      */
     Mono<User> findByUsername(String username);
+
+    /**
+     * Finds a user by their password reset token in a non-blocking manner.
+     *
+     * @param passwordResetToken The password reset token to search for. Must not be null.
+     * @return A {@link Mono} that emits the {@link User} if found, or completes
+     * empty if no user with that token exists.
+     */
+    Mono<User> findByPasswordResetToken(String passwordResetToken);
 }

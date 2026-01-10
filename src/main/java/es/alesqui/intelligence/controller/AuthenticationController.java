@@ -16,7 +16,11 @@ import es.alesqui.intelligence.dto.security.ActivateAccountRequest;
 import es.alesqui.intelligence.dto.security.ActivateAccountResponse;
 import es.alesqui.intelligence.dto.security.AuthRequest;
 import es.alesqui.intelligence.dto.security.AuthResponse;
+import es.alesqui.intelligence.dto.security.ForgotPasswordRequest;
+import es.alesqui.intelligence.dto.security.ForgotPasswordResponse;
 import es.alesqui.intelligence.dto.security.ResendActivationRequest;
+import es.alesqui.intelligence.dto.security.ResetPasswordRequest;
+import es.alesqui.intelligence.dto.security.ResetPasswordResponse;
 import es.alesqui.intelligence.dto.security.ValidateTokenRequest;
 import es.alesqui.intelligence.dto.security.ValidateTokenResponse;
 import es.alesqui.intelligence.model.core.User;
@@ -184,6 +188,81 @@ public class AuthenticationController {
             .onErrorResume(e -> {
                 log.warn("[Auth] Resend activation failed: {}", e.getMessage());
                 return Mono.just(ActivateAccountResponse.builder()
+                    .success(false)
+                    .message(e.getMessage())
+                    .build());
+            });
+    }
+
+    /**
+     * Handles the "forgot password" request.
+     * Sends a password reset email to the user if the email exists.
+     * 
+     * @param request the request containing the user's email
+     * @return response indicating that the email has been sent (for security, always returns success)
+     */
+    @PostMapping("/forgot-password")
+    public Mono<ForgotPasswordResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        log.debug("[Auth] Password reset requested for: {}", request.getEmail());
+        
+        return userManagementService.requestPasswordReset(request.getEmail())
+            .thenReturn(ForgotPasswordResponse.builder()
+                .success(true)
+                .message("If an account exists with this email, a password reset link has been sent.")
+                .email(request.getEmail())
+                .build())
+            .onErrorResume(e -> {
+                log.warn("[Auth] Forgot password error: {}", e.getMessage());
+                // For security, don't reveal if the email exists or not
+                return Mono.just(ForgotPasswordResponse.builder()
+                    .success(true)
+                    .message("If an account exists with this email, a password reset link has been sent.")
+                    .email(request.getEmail())
+                    .build());
+            });
+    }
+
+    /**
+     * Validates a password reset token.
+     * 
+     * @param token the password reset token from query parameter
+     * @return validation response with user details if valid
+     */
+    @GetMapping("/validate-reset-token")
+    public Mono<ValidateTokenResponse> validateResetToken(@RequestParam String token) {
+        log.debug("[Auth] Validating password reset token");
+        
+        return userManagementService.validatePasswordResetToken(token)
+            .map(user -> ValidateTokenResponse.builder()
+                .valid(true)
+                .email(user.getUsername())
+                .message("Token is valid")
+                .build())
+            .switchIfEmpty(Mono.just(ValidateTokenResponse.builder()
+                .valid(false)
+                .message("Invalid or expired token")
+                .build()));
+    }
+
+    /**
+     * Resets a user's password with a valid reset token.
+     * 
+     * @param request the request containing token and new password
+     * @return reset response
+     */
+    @PostMapping("/reset-password")
+    public Mono<ResetPasswordResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        log.debug("[Auth] Resetting password");
+        
+        return userManagementService.resetPassword(request.getToken(), request.getPassword())
+            .map(user -> ResetPasswordResponse.builder()
+                .success(true)
+                .message("Password successfully reset. You can now log in with your new password.")
+                .email(user.getUsername())
+                .build())
+            .onErrorResume(e -> {
+                log.warn("[Auth] Password reset failed: {}", e.getMessage());
+                return Mono.just(ResetPasswordResponse.builder()
                     .success(false)
                     .message(e.getMessage())
                     .build());

@@ -19,9 +19,7 @@ import reactor.core.scheduler.Schedulers;
  * Reactive service for sending emails using JavaMailSender.
  * Supports both plain text and HTML email formats.
  * 
- * This service uses SMTP configuration from application.properties
- * and provides methods for common email operations like welcome emails
- * and password reset notifications.
+ * This service uses SMTP configuration from application.properties.
  * 
  * All operations are executed on the boundedElastic scheduler to avoid
  * blocking the main reactive pipeline.
@@ -30,7 +28,7 @@ import reactor.core.scheduler.Schedulers;
 @Service
 @RequiredArgsConstructor
 public class EmailService {
-
+    
     private final JavaMailSender mailSender;
 
     @Value("${mail.from.email}")
@@ -97,60 +95,4 @@ public class EmailService {
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
-    /**
-     * Sends a welcome email to a new user reactively.
-     * 
-     * @param to the recipient email address
-     * @param userName the name of the user to personalize the email
-     * @return a Mono that completes when the email is sent
-     */
-    public Mono<Void> sendWelcomeEmail(String to, String userName) {
-        String subject = "Welcome to Alesqui Intelligence!";
-        String htmlContent = """
-            <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2>Hello %s!</h2>
-                <p>Welcome to <strong>Alesqui Intelligence</strong>.</p>
-                <p>We're excited to have you with us.</p>
-                <br>
-                <p>Best regards,<br>The Alesqui Team</p>
-            </body>
-            </html>
-            """.formatted(userName);
-        
-        return sendHtmlEmail(to, subject, htmlContent);
-    }
-
-    /**
-     * Sends a password reset email with a reset token link reactively.
-     * 
-     * The reset link expires in 1 hour.
-     * 
-     * @param to the recipient email address
-     * @param resetToken the unique token for password reset verification
-     * @return a Mono that completes when the email is sent
-     */
-    public Mono<Void> sendPasswordResetEmail(String to, String resetToken) {
-        String subject = "Password Recovery";
-        String resetUrl = "https://alesqui.com/reset-password?token=" + resetToken;
-        
-        String htmlContent = """
-            <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2>Password Recovery</h2>
-                <p>You have requested to reset your password.</p>
-                <p>Click the following link to continue:</p>
-                <a href="%s" style="display: inline-block; padding: 10px 20px; 
-                   background-color: #007bff; color: white; text-decoration: none; 
-                   border-radius: 5px;">Reset Password</a>
-                <p>This link will expire in 1 hour.</p>
-                <p>If you did not request this change, please ignore this email.</p>
-                <br>
-                <p>Best regards,<br>The Alesqui Team</p>
-            </body>
-            </html>
-            """.formatted(resetUrl);
-        
-        return sendHtmlEmail(to, subject, htmlContent);
-    }
 }

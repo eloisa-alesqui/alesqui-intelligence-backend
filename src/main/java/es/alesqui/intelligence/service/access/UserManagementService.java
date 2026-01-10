@@ -23,7 +23,9 @@ import es.alesqui.intelligence.repository.ApiGroupLinkRepository;
 import es.alesqui.intelligence.repository.GroupMembershipRepository;
 import es.alesqui.intelligence.repository.GroupRepository;
 import es.alesqui.intelligence.repository.UserRepository;
-import es.alesqui.intelligence.service.identity.ActivationEmailService;
+import es.alesqui.intelligence.service.notification.EmailService;
+import es.alesqui.intelligence.service.notification.EmailTemplateService;
+import es.alesqui.intelligence.service.security.TokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -43,7 +45,9 @@ public class UserManagementService {
     private final GroupRepository groupRepository;
     private final ApiGroupLinkRepository apiGroupLinkRepository;
     private final PasswordEncoder passwordEncoder;
-    private final ActivationEmailService activationEmailService;
+    private final TokenService tokenService;
+    private final EmailTemplateService emailTemplateService;
+    private final EmailService emailService;
     private final TrialWorkspaceService trialWorkspaceService;
 
     /**
@@ -132,8 +136,8 @@ public class UserManagementService {
 
                     } else {
                         // Mode 2: Pending activation, send email
-                        String token = activationEmailService.generateActivationToken();
-                        Instant expiration = activationEmailService.calculateTokenExpiration();
+                        String token = tokenService.generateSecureToken();
+                        Instant expiration = tokenService.calculateActivationExpiration();
 
                         userBuilder
                                 .password(null)
@@ -150,7 +154,8 @@ public class UserManagementService {
                         log.info("Creating inactive user (pending activation): {}", username);
 
                         // Send email first, only save user if email succeeds
-                        return activationEmailService.sendActivationEmail(username, token, rolesStr)
+                        String htmlContent = emailTemplateService.buildActivationEmail(username, token, rolesStr);
+                        return emailService.sendHtmlEmail(username, "Activate Your Account - Alesqui Intelligence", htmlContent)
                                 .then(userRepository.save(newUser))
                                 .doOnError(e -> log.error(
                                         "Failed to send activation email for user {}, not saving user", username, e));
@@ -514,8 +519,8 @@ public class UserManagementService {
                     }
 
                     // Generate new token
-                    String newToken = activationEmailService.generateActivationToken();
-                    Instant newExpiration = activationEmailService.calculateTokenExpiration();
+                    String newToken = tokenService.generateSecureToken();
+                    Instant newExpiration = tokenService.calculateActivationExpiration();
 
                     user.setActivationToken(newToken);
                     user.setActivationTokenExpiresAt(newExpiration);
@@ -528,7 +533,105 @@ public class UserManagementService {
                     log.info("Resending activation email to: {}", email);
 
                     return userRepository.save(user)
-                            .flatMap(savedUser -> activationEmailService.sendActivationEmail(email, newToken, rolesStr));
+                            .flatMap(savedUser -> {
+                                String htmlContent = emailTemplateService.buildActivationEmail(email, newToken, rolesStr);
+                                return emailService.sendHtmlEmail(email, "Activate Your Account - Alesqui Intelligence", htmlContent);
+                            });
+                });
+    }
+
+    /**
+     * Initiates the password reset process for a user.
+     * Generates a password reset token, saves it to the user, and sends a reset email.
+     * 
+     * @param email the user's email address
+     * @return Mono signaling completion
+     */
+    public Mono<Void> requestPasswordReset(String email) {
+        return userRepository.findByUsername(email)
+                .switchIfEmpty(Mono.defer(() -> {
+                    // For security, don't reveal if the email exists or not
+                    log.warn("[PasswordReset] Password reset requested for non-existent email: {}", email);
+                    return Mono.empty(); // Return empty but don't error
+                }))
+                .flatMap(user -> {
+                    if (!user.isActive()) {
+                        // User must be activated first
+                        log.warn("[PasswordReset] Password reset requested for inactive user: {}", email);
+                        return Mono.empty(); // Don't send email to inactive users
+                    }
+
+                    // Generate reset token
+                    String resetToken = tokenService.generateSecureToken();
+                    Instant tokenExpiration = tokenService.calculatePasswordResetExpiration();
+
+                    user.setPasswordResetToken(resetToken);
+                    user.setPasswordResetTokenExpiresAt(tokenExpiration);
+
+                    log.info("[PasswordReset] Generating password reset token for: {}", email);
+
+                    return userRepository.save(user)
+                            .flatMap(savedUser -> {
+                                log.info("[PasswordReset] Sending password reset email to: {}", email);
+                                String htmlContent = emailTemplateService.buildPasswordResetEmail(email, resetToken);
+                                return emailService.sendHtmlEmail(email, "Password Reset Request - Alesqui Intelligence", htmlContent);
+                            });
+                })
+                .then();
+    }
+
+    /**
+     * Validates a password reset token.
+     * 
+     * @param token the password reset token
+     * @return Mono containing the user if the token is valid, empty otherwise
+     */
+    public Mono<User> validatePasswordResetToken(String token) {
+        return userRepository.findByPasswordResetToken(token)
+                .filter(user -> {
+                    // Check if token is expired
+                    if (user.getPasswordResetTokenExpiresAt() == null) {
+                        log.warn("[PasswordReset] Token has no expiration date");
+                        return false;
+                    }
+                    
+                    boolean isValid = user.getPasswordResetTokenExpiresAt().isAfter(Instant.now());
+                    if (!isValid) {
+                        log.warn("[PasswordReset] Token expired for user: {}", user.getUsername());
+                    }
+                    return isValid;
+                })
+                .switchIfEmpty(Mono.defer(() -> {
+                    log.warn("[PasswordReset] Invalid or expired password reset token");
+                    return Mono.empty();
+                }));
+    }
+
+    /**
+     * Resets a user's password using a valid reset token.
+     * 
+     * @param token the password reset token
+     * @param newPassword the new password to set
+     * @return Mono containing the updated user
+     */
+    public Mono<User> resetPassword(String token, String newPassword) {
+        return validatePasswordResetToken(token)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("Invalid or expired password reset token")))
+                .flatMap(user -> {
+                    // Hash the new password
+                    String hashedPassword = passwordEncoder.encode(newPassword);
+                    user.setPassword(hashedPassword);
+                    
+                    // Clear the reset token
+                    user.setPasswordResetToken(null);
+                    user.setPasswordResetTokenExpiresAt(null);
+                    
+                    // Ensure user is active (in case they were pending)
+                    user.setActive(true);
+
+                    log.info("[PasswordReset] Password successfully reset for user: {}", user.getUsername());
+
+                    return userRepository.save(user);
                 });
     }
 }
