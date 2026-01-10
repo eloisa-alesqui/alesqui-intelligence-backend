@@ -254,7 +254,7 @@ public class AuthenticationController {
     public Mono<ResetPasswordResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         log.debug("[Auth] Resetting password");
         
-        return userManagementService.resetPassword(request.getToken(), request.getPassword())
+        return userManagementService.resetPassword(request.getToken(), request.getNewPassword())
             .map(user -> ResetPasswordResponse.builder()
                 .success(true)
                 .message("Password successfully reset. You can now log in with your new password.")
