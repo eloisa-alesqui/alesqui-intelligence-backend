@@ -3,25 +3,27 @@ package es.alesqui.intelligence.service.access;
 import java.time.Instant;
 import java.util.List;
 
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.dto.admin.GroupCreateRequest;
 import es.alesqui.intelligence.dto.admin.GroupDetailResponse;
 import es.alesqui.intelligence.dto.admin.GroupSummaryResponse;
 import es.alesqui.intelligence.dto.admin.GroupUpdateRequest;
-import es.alesqui.intelligence.dto.admin.GroupWithCountsResponse;
 import es.alesqui.intelligence.dto.admin.ApiSummaryResponse;
 import es.alesqui.intelligence.dto.admin.UserSummaryResponse;
 import es.alesqui.intelligence.model.access.Group;
 import es.alesqui.intelligence.model.access.GroupMembership;
 import es.alesqui.intelligence.model.access.ApiGroupLink;
-import es.alesqui.intelligence.model.core.User;
+import es.alesqui.intelligence.model.audit.AuditAction;
+import es.alesqui.intelligence.model.audit.EntityType;
 import es.alesqui.intelligence.model.core.enums.Role;
 import es.alesqui.intelligence.repository.GroupRepository;
 import es.alesqui.intelligence.repository.GroupMembershipRepository;
 import es.alesqui.intelligence.repository.ApiGroupLinkRepository;
 import es.alesqui.intelligence.repository.UserRepository;
 import es.alesqui.intelligence.service.UnifiedApiService;
+import es.alesqui.intelligence.service.audit.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -41,14 +43,16 @@ public class GroupManagementService {
     private final ApiGroupLinkRepository apiGroupLinkRepository;
     private final UserRepository userRepository;
     private final UnifiedApiService unifiedApiService;
+    private final AuditService auditService;
 
     /**
      * Creates a new group.
      * 
      * @param req the request containing group creation details
+     * @param request the HTTP request for audit logging
      * @return the created group
      */
-    public Mono<Group> createGroup(GroupCreateRequest req) {
+    public Mono<Group> createGroup(GroupCreateRequest req, ServerHttpRequest request) {
         Group g = new Group();
         g.setCode(req.getCode().trim());
         g.setName(req.getName().trim());
@@ -59,7 +63,18 @@ public class GroupManagementService {
                 .flatMap(exists -> exists
                         ? Mono.error(new IllegalArgumentException("Group code already exists: " + g.getCode()))
                         : groupRepository.save(g)
-                                .doOnSuccess(group -> log.info("Created group: {} ({})", group.getName(), group.getCode())));
+                                .flatMap(group -> {
+                                    log.info("Created group: {} ({})", group.getName(), group.getCode());
+                                    // Log group creation audit event
+                                    return auditService.logAction(
+                                            AuditAction.GROUP_CREATED,
+                                            EntityType.GROUP,
+                                            group.getId(),
+                                            group.getName(),
+                                            "Group created with code: " + group.getCode(),
+                                            request
+                                    ).thenReturn(group);
+                                }));
     }
 
     /**
@@ -67,16 +82,39 @@ public class GroupManagementService {
      * 
      * @param groupId the ID of the group to update
      * @param req     the request containing updated group details
+     * @param request the HTTP request for audit logging
      * @return the updated group
      */
-    public Mono<Group> updateGroup(String groupId, GroupUpdateRequest req) {
+    public Mono<Group> updateGroup(String groupId, GroupUpdateRequest req, ServerHttpRequest request) {
         return groupRepository.findById(groupId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)))
-                .flatMap(g -> {
-                    g.setName(req.getName().trim());
-                    g.setDescription(req.getDescription());
-                    return groupRepository.save(g)
-                            .doOnSuccess(group -> log.info("Updated group: {}", group.getCode()));
+                .flatMap(originalGroup -> {
+                    // Create a copy of the original state for audit logging
+                    Group groupBeforeUpdate = new Group();
+                    groupBeforeUpdate.setId(originalGroup.getId());
+                    groupBeforeUpdate.setCode(originalGroup.getCode());
+                    groupBeforeUpdate.setName(originalGroup.getName());
+                    groupBeforeUpdate.setDescription(originalGroup.getDescription());
+                    groupBeforeUpdate.setCreatedAt(originalGroup.getCreatedAt());
+                    
+                    // Apply updates
+                    originalGroup.setName(req.getName().trim());
+                    originalGroup.setDescription(req.getDescription());
+                    
+                    return groupRepository.save(originalGroup)
+                            .flatMap(updatedGroup -> {
+                                log.info("Updated group: {}", updatedGroup.getCode());
+                                // Log group update audit event with before/after state
+                                return auditService.logActionWithData(
+                                        AuditAction.GROUP_UPDATED,
+                                        EntityType.GROUP,
+                                        updatedGroup.getId(),
+                                        updatedGroup.getName(),
+                                        groupBeforeUpdate,
+                                        updatedGroup,
+                                        request
+                                ).thenReturn(updatedGroup);
+                            });
                 });
     }
 
@@ -85,9 +123,10 @@ public class GroupManagementService {
      * Prevents deletion if the group has any users or APIs associated with it.
      * 
      * @param groupId the ID of the group to delete
+     * @param request the HTTP request for audit logging
      * @return a Mono signaling completion
      */
-    public Mono<Void> deleteGroup(String groupId) {
+    public Mono<Void> deleteGroup(String groupId, ServerHttpRequest request) {
         return groupRepository.findById(groupId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)))
                 .flatMap(group -> {
@@ -114,6 +153,17 @@ public class GroupManagementService {
                                 }
 
                                 return groupRepository.deleteById(groupId)
+                                        .then(
+                                                // Log group deletion audit event
+                                                auditService.logAction(
+                                                        AuditAction.GROUP_DELETED,
+                                                        EntityType.GROUP,
+                                                        group.getId(),
+                                                        group.getName(),
+                                                        "Group deleted with code: " + group.getCode(),
+                                                        request
+                                                )
+                                        )
                                         .doOnSuccess(v -> log.info("Deleted group: {} ({})", group.getName(), group.getCode()));
                             });
                 });
@@ -284,5 +334,28 @@ public class GroupManagementService {
                                 .apiCount(tuple.getT2())
                                 .build()))
                 .doOnNext(group -> log.debug("Retrieved group {} for user {}", group.getCode(), userId));
+    }
+
+    /**
+     * Logs a failed group operation for audit purposes.
+     * Used in error handlers to track failed administrative actions.
+     * 
+     * @param action the action that was attempted
+     * @param groupId the group ID (if known)
+     * @param groupName the group name (if known)
+     * @param errorMessage the error message
+     * @param request the HTTP request for audit logging
+     * @return Mono signaling completion
+     */
+    public Mono<Void> logGroupOperationFailure(AuditAction action, String groupId, String groupName,
+                                               String errorMessage, ServerHttpRequest request) {
+        return auditService.logFailure(
+                action,
+                EntityType.GROUP,
+                groupId != null ? groupId : "unknown",
+                groupName != null ? groupName : "unknown",
+                errorMessage,
+                request
+        );
     }
 }

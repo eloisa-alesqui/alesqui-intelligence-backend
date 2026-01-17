@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
@@ -19,8 +20,11 @@ import es.alesqui.intelligence.model.api_spec.unified.GeneratedCapabilities;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedEndpoint;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedParameter;
+import es.alesqui.intelligence.model.audit.AuditAction;
+import es.alesqui.intelligence.model.audit.EntityType;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
 import es.alesqui.intelligence.security.SecurityUtils;
+import es.alesqui.intelligence.service.audit.AuditService;
 import es.alesqui.intelligence.service.chat.SpringAIService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +42,7 @@ public class ApiUnificationService {
     private final SpringAIService springAIService;
     private final ChatConfig chatConfig;
     private final ApplicationEventPublisher eventPublisher;
+    private final AuditService auditService;
 
     /**
      * Unifies a Swagger document with an optional Postman document into a single UnifiedApiDocument.
@@ -115,9 +120,10 @@ public class ApiUnificationService {
      * For TRIAL users, automatically links the API to their workspace.
      * 
      * @param document the UnifiedApiDocument to save
+     * @param request the HTTP request for audit logging
      * @return a Mono of the saved UnifiedApiDocument
      */
-    public Mono<UnifiedApiDocument> save(UnifiedApiDocument document) {
+    public Mono<UnifiedApiDocument> save(UnifiedApiDocument document, ServerHttpRequest request) {
         document.setUpdatedAt(Instant.now());
         if (document.getCreatedAt() == null) {
             document.setCreatedAt(Instant.now());
@@ -132,10 +138,29 @@ public class ApiUnificationService {
                             eventPublisher.publishEvent(new ApiCreatedEvent(this, savedDoc.getId(), username));
                             log.debug("Published ApiCreatedEvent for API ID: {}, user: {}", savedDoc.getId(), username);
                         })
+                        .then(auditService.logAction(
+                                AuditAction.API_CREATED,
+                                EntityType.API,
+                                savedDoc.getId(),
+                                savedDoc.getName(),
+                                "API created successfully",
+                                request
+                        ))
                         .thenReturn(savedDoc)
                 )
                 .doOnSuccess(saved -> log.info("UnifiedApiDocument saved with ID: {}", saved.getId()))
-                .doOnError(error -> log.error("Error saving collection: {}", document.getName(), error));
+                .onErrorResume(error -> {
+                    log.error("Error saving collection: {}", document.getName(), error);
+                    // Log failure
+                    return auditService.logFailure(
+                            AuditAction.API_CREATED,
+                            EntityType.API,
+                            "unknown",
+                            document.getName(),
+                            "Failed to create API: " + error.getMessage(),
+                            request
+                    ).then(Mono.error(error));
+                });
     }
     
     /**

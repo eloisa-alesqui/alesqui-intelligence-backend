@@ -63,7 +63,10 @@ public class SecurityConfig {
 
             // Configure authorization rules
             .authorizeExchange(exchanges -> exchanges
-                .pathMatchers("/api/auth/**").permitAll() // Public auth endpoints
+                // Logout requires authentication (must come before /api/auth/**)
+                .pathMatchers("/api/auth/logout").authenticated()
+                // Other auth endpoints are public
+                .pathMatchers("/api/auth/**").permitAll()
                 .pathMatchers("/api/public/**").permitAll() // Public trial registration
                 .pathMatchers("/api/test/**").permitAll()
                 // Allow health/info for platform health checks (Render)

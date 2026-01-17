@@ -11,8 +11,11 @@ import es.alesqui.intelligence.dto.admin.AssignApisRequest;
 import es.alesqui.intelligence.dto.admin.AssignGroupsToApiRequest;
 import es.alesqui.intelligence.dto.admin.GroupSummaryResponse;
 import es.alesqui.intelligence.model.access.ApiGroupLink;
+import es.alesqui.intelligence.model.access.Group;
 import es.alesqui.intelligence.model.access.GroupMembership;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.audit.AuditAction;
+import es.alesqui.intelligence.model.audit.EntityType;
 import es.alesqui.intelligence.model.core.enums.Role;
 import es.alesqui.intelligence.repository.ApiGroupLinkRepository;
 import es.alesqui.intelligence.repository.GroupMembershipRepository;
@@ -20,9 +23,11 @@ import es.alesqui.intelligence.repository.GroupRepository;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
 import es.alesqui.intelligence.repository.UserRepository;
 import es.alesqui.intelligence.service.UnifiedApiService;
+import es.alesqui.intelligence.service.audit.AuditService;
 import es.alesqui.intelligence.service.identity.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -50,27 +55,43 @@ public class ApiGroupLinkService {
     private final UnifiedApiRepository unifiedApiRepository;
     private final GroupMembershipRepository groupMembershipRepository;
     private final UserService userService;
+    private final AuditService auditService;
 
     /**
      * Assigns APIs to a group.
      * 
      * @param groupId the ID of the group
      * @param req     the request containing API IDs to assign
+     * @param httpRequest the HTTP request for audit logging
      * @return a Flux of assigned API group links
      */
-    public Flux<ApiGroupLink> assignApis(String groupId, AssignApisRequest req) {
-        // Validate group exists
-        Mono<Boolean> groupExists = groupRepository.existsById(groupId)
-                .filter(exists -> exists)
+    public Flux<ApiGroupLink> assignApis(String groupId, AssignApisRequest req, ServerHttpRequest httpRequest) {
+        // Validate group exists and load group details for audit
+        Mono<Group> groupMono = groupRepository.findById(groupId)
                 .switchIfEmpty(Mono.error(new IllegalStateException("Group not found: " + groupId)));
 
-        return groupExists.flatMapMany(exists -> Flux.fromIterable(req.getApiIds())
+        return groupMono.flatMapMany(group -> Flux.fromIterable(req.getApiIds())
                 .flatMap(apiId -> unifiedApiService.findById(apiId)
                         .switchIfEmpty(Mono.error(new IllegalArgumentException("API not found: " + apiId)))
-                        .then(apiGroupLinkRepository.existsByApiIdAndGroupId(apiId, groupId)
-                                .flatMap(linkExists -> linkExists ? Mono.empty()
-                                        : apiGroupLinkRepository.save(buildLink(apiId, groupId))
-                                                .doOnSuccess(link -> log.info("Linked API {} to group {}", apiId, groupId))))));
+                        .flatMap(api -> apiGroupLinkRepository.existsByApiIdAndGroupId(apiId, groupId)
+                                .flatMap(linkExists -> {
+                                    if (linkExists) {
+                                        return Mono.empty();
+                                    }
+                                    return apiGroupLinkRepository.save(buildLink(apiId, groupId))
+                                            .flatMap(link -> {
+                                                log.info("Linked API {} to group {}", apiId, groupId);
+                                                // Audit log: API assigned to group
+                                                return auditService.logAction(
+                                                        AuditAction.GROUP_APIS_ASSIGNED,
+                                                        EntityType.API_GROUP_LINK,
+                                                        link.getId(),
+                                                        api.getName() + " → " + group.getName(),
+                                                        "API '" + api.getName() + "' assigned to group '" + group.getName() + "'",
+                                                        httpRequest
+                                                ).thenReturn(link);
+                                            });
+                                }))));
     }
 
     /**
@@ -78,26 +99,34 @@ public class ApiGroupLinkService {
      * 
      * @param groupId the ID of the group
      * @param apiId   the ID of the API to remove
+     * @param httpRequest the HTTP request for audit logging
      * @return a Mono signaling completion
      */
-    public Mono<Void> removeApiFromGroup(String groupId, String apiId) {
-        return groupRepository.existsById(groupId)
-                .filter(exists -> exists)
+    public Mono<Void> removeApiFromGroup(String groupId, String apiId, ServerHttpRequest httpRequest) {
+        return groupRepository.findById(groupId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)))
-                .then(unifiedApiService.findById(apiId)
-                        .switchIfEmpty(Mono.error(new IllegalArgumentException("API not found: " + apiId))))
-                .then(apiGroupLinkRepository.existsByApiIdAndGroupId(apiId, groupId)
-                        .flatMap(exists -> {
-                            if (!exists) {
-                                return Mono.error(new IllegalArgumentException(
-                                        "API " + apiId + " is not linked to group " + groupId));
-                            }
-                            return apiGroupLinkRepository.findByApiId(apiId)
-                                    .filter(link -> link.getGroupId().equals(groupId))
-                                    .next()
-                                    .flatMap(link -> apiGroupLinkRepository.deleteById(link.getId())
-                                            .doOnSuccess(v -> log.info("Unlinked API {} from group {}", apiId, groupId)));
-                        }));
+                .flatMap(group -> unifiedApiService.findById(apiId)
+                        .switchIfEmpty(Mono.error(new IllegalArgumentException("API not found: " + apiId)))
+                        .flatMap(api -> apiGroupLinkRepository.existsByApiIdAndGroupId(apiId, groupId)
+                                .flatMap(exists -> {
+                                    if (!exists) {
+                                        return Mono.error(new IllegalArgumentException(
+                                                "API " + apiId + " is not linked to group " + groupId));
+                                    }
+                                    return apiGroupLinkRepository.findByApiId(apiId)
+                                            .filter(link -> link.getGroupId().equals(groupId))
+                                            .next()
+                                            .flatMap(link -> apiGroupLinkRepository.deleteById(link.getId())
+                                                    .then(auditService.logAction(
+                                                            AuditAction.GROUP_API_REMOVED,
+                                                            EntityType.API_GROUP_LINK,
+                                                            link.getId(),
+                                                            api.getName() + " ✗ " + group.getName(),
+                                                            "API '" + api.getName() + "' removed from group '" + group.getName() + "'",
+                                                            httpRequest
+                                                    ))
+                                                    .doOnSuccess(v -> log.info("Unlinked API {} from group {}", apiId, groupId)));
+                                })));
     }
 
     /**
@@ -391,22 +420,36 @@ public class ApiGroupLinkService {
      * 
      * @param apiId the ID of the API
      * @param req   the request containing group IDs to assign
+     * @param httpRequest the HTTP request for audit logging
      * @return a Flux of assigned API group links
      */
-    public Flux<ApiGroupLink> assignGroupsToApi(String apiId, AssignGroupsToApiRequest req) {
-        // Validate API exists
-        Mono<Boolean> apiExists = unifiedApiService.findById(apiId)
-                .map(api -> true)
+    public Flux<ApiGroupLink> assignGroupsToApi(String apiId, AssignGroupsToApiRequest req, ServerHttpRequest httpRequest) {
+        // Validate API exists and load API details for audit
+        Mono<UnifiedApiDocument> apiMono = unifiedApiService.findById(apiId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("API not found: " + apiId)));
 
-        return apiExists.flatMapMany(exists -> Flux.fromIterable(req.getGroupIds())
-                .flatMap(groupId -> groupRepository.existsById(groupId)
-                        .filter(groupExists -> groupExists)
+        return apiMono.flatMapMany(api -> Flux.fromIterable(req.getGroupIds())
+                .flatMap(groupId -> groupRepository.findById(groupId)
                         .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)))
-                        .then(apiGroupLinkRepository.existsByApiIdAndGroupId(apiId, groupId)
-                                .flatMap(linkExists -> linkExists ? Mono.empty()
-                                        : apiGroupLinkRepository.save(buildLink(apiId, groupId))
-                                                .doOnSuccess(link -> log.info("Linked API {} to group {}", apiId, groupId))))));
+                        .flatMap(group -> apiGroupLinkRepository.existsByApiIdAndGroupId(apiId, groupId)
+                                .flatMap(linkExists -> {
+                                    if (linkExists) {
+                                        return Mono.empty();
+                                    }
+                                    return apiGroupLinkRepository.save(buildLink(apiId, groupId))
+                                            .flatMap(link -> {
+                                                log.info("Linked API {} to group {}", apiId, groupId);
+                                                // Audit log: API assigned to group
+                                                return auditService.logAction(
+                                                        AuditAction.API_ASSIGNED_TO_GROUP,
+                                                        EntityType.API_GROUP_LINK,
+                                                        link.getId(),
+                                                        api.getName() + " → " + group.getName(),
+                                                        "API '" + api.getName() + "' assigned to group '" + group.getName() + "'",
+                                                        httpRequest
+                                                ).thenReturn(link);
+                                            });
+                                }))));
     }
 
     /**

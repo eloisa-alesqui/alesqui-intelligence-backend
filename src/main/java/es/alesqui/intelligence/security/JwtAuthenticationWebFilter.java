@@ -58,8 +58,8 @@ public class JwtAuthenticationWebFilter implements WebFilter {
         // Mark this request as processed to prevent duplicate processing
         exchange.getAttributes().put(JWT_AUTH_PROCESSED_KEY, true);
 
-        // Skip JWT processing for public endpoints
-        if (path.startsWith("/api/auth/")) {
+        // Skip JWT processing for public auth endpoints (except logout which requires authentication)
+        if (path.startsWith("/api/auth/") && !path.equals("/api/auth/logout")) {
             log.debug("Skipping JWT authentication for public auth endpoint: {}", path);
             return chain.filter(exchange);
         }

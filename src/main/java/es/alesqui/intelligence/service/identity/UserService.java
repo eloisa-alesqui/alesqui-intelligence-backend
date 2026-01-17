@@ -39,6 +39,16 @@ public class UserService {
     }
 
     /**
+     * Finds a user by their username.
+     * 
+     * @param username the username to search for
+     * @return a Mono emitting the user if found, empty otherwise
+     */
+    public Mono<User> findByUsername(String username) {
+        return userRepository.findByUsername(username);
+    }
+
+    /**
      * Resolves the id of the current authenticated user, or emits empty if unauthenticated.
      */
     public Mono<String> getCurrentUserId() {

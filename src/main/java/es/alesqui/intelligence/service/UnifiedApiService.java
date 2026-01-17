@@ -8,13 +8,17 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import es.alesqui.intelligence.exception.DocumentNotFoundException;
 import es.alesqui.intelligence.model.api_spec.unified.ApiConfiguration;
 import es.alesqui.intelligence.model.api_spec.unified.UnifiedApiDocument;
+import es.alesqui.intelligence.model.audit.AuditAction;
+import es.alesqui.intelligence.model.audit.EntityType;
 import es.alesqui.intelligence.repository.UnifiedApiRepository;
+import es.alesqui.intelligence.service.audit.AuditService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -37,7 +41,7 @@ public class UnifiedApiService {
 	private final UnifiedApiRepository unifiedApiRepository;
 	private final SwaggerService swaggerService;
     private final PostmanService postmanService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final AuditService auditService;
 
 	/**
 	 * Retrieves all API documents from the repository.
@@ -111,14 +115,37 @@ public class UnifiedApiService {
      *
      * @param apiName The name of the API document to update.
      * @param configuration The new configuration to apply.
+     * @param request the HTTP request for audit logging
      * @return A Mono containing the updated document, or an error if not found.
      */
-    public Mono<UnifiedApiDocument> updateApiConfiguration(String apiName, ApiConfiguration configuration) {
+    public Mono<UnifiedApiDocument> updateApiConfiguration(String apiName, ApiConfiguration configuration, ServerHttpRequest request) {
         return unifiedApiRepository.findByNameIgnoreCase(apiName)
                 .switchIfEmpty(Mono.error(new RuntimeException("API not found: " + apiName))) 
                 .flatMap(document -> {
                     document.setApiConfiguration(configuration);
-                    return unifiedApiRepository.save(document);
+                    return unifiedApiRepository.save(document)
+                            .flatMap(updatedDoc -> {
+                                // Log successful API configuration update
+                                return auditService.logAction(
+                                        AuditAction.API_UPDATED,
+                                        EntityType.API,
+                                        updatedDoc.getId(),
+                                        updatedDoc.getName(),
+                                        "API configuration updated",
+                                        request
+                                ).thenReturn(updatedDoc);
+                            });
+                })
+                .onErrorResume(error -> {
+                    // Log failure
+                    return auditService.logFailure(
+                            AuditAction.API_UPDATED,
+                            EntityType.API,
+                            "unknown",
+                            apiName,
+                            "Failed to update API configuration: " + error.getMessage(),
+                            request
+                    ).then(Mono.error(error));
                 });
     }
     
@@ -127,10 +154,11 @@ public class UnifiedApiService {
      *
      * @param apiId The unique identifier of the API document to update.
      * @param active The new status to set (true for active, false for inactive).
+     * @param request the HTTP request for audit logging
      * @return A Mono containing the updated document, or an error if not found.
      */
     @Transactional
-    public Mono<UnifiedApiDocument> updateApiStatus(String apiId, boolean active) {
+    public Mono<UnifiedApiDocument> updateApiStatus(String apiId, boolean active, ServerHttpRequest request) {
         log.info("Updating status for API with id: {} to active={}", apiId, active);
 
         return unifiedApiRepository.findById(apiId)
@@ -138,10 +166,32 @@ public class UnifiedApiService {
                 .flatMap(document -> {
                     document.setActive(active);
                     document.setUpdatedAt(Instant.now()); // Update modification timestamp
-                    return unifiedApiRepository.save(document);
+                    return unifiedApiRepository.save(document)
+                            .flatMap(savedDoc -> {
+                                // Log successful API status update
+                                return auditService.logAction(
+                                        AuditAction.API_UPDATED,
+                                        EntityType.API,
+                                        savedDoc.getId(),
+                                        savedDoc.getName(),
+                                        "API status updated to " + (active ? "active" : "inactive"),
+                                        request
+                                ).thenReturn(savedDoc);
+                            });
                 })
                 .doOnSuccess(savedDoc -> log.info("Successfully updated status for API '{}'", savedDoc.getName()))
-                .doOnError(error -> log.error("Error updating status for API with ID: {}", apiId, error));
+                .onErrorResume(error -> {
+                    log.error("Error updating status for API with ID: {}", apiId, error);
+                    // Log failure
+                    return auditService.logFailure(
+                            AuditAction.API_UPDATED,
+                            EntityType.API,
+                            apiId,
+                            "unknown",
+                            "Failed to update API status: " + error.getMessage(),
+                            request
+                    ).then(Mono.error(error));
+                });
     }
 
     /**
@@ -149,17 +199,59 @@ public class UnifiedApiService {
      * The deletion is based on the unique name shared across the documents.
      *
      * @param id The ID of the UnifiedApiDocument to delete.
+     * @param request the HTTP request for audit logging (can be null for system operations)
      * @return A Mono<Void> that completes when all documents are deleted.
      */
-    public Mono<Void> deleteApi(String id) {
+    public Mono<Void> deleteApi(String id, ServerHttpRequest request) {
         log.info("Attempting to delete API with ID: {}", id);
 
         return unifiedApiRepository.findById(id)
                 .flatMap(api -> {
-                    return swaggerService.deleteByName(api.getName())
-                        .then(postmanService.deleteByName(api.getName()))
-                        .then(unifiedApiRepository.delete(api));
+                    String apiName = api.getName();
+                    String apiId = api.getId();
+                    return swaggerService.deleteByName(apiName)
+                        .then(postmanService.deleteByName(apiName))
+                        .then(unifiedApiRepository.delete(api))
+                        .then(request != null
+                            ? auditService.logAction(
+                                    AuditAction.API_DELETED,
+                                    EntityType.API,
+                                    apiId,
+                                    apiName,
+                                    "API deleted successfully",
+                                    request
+                            )
+                            : Mono.empty() // Skip audit logging if no request context (system operation)
+                        );
+                })
+                .onErrorResume(error -> {
+                    log.error("Error deleting API with ID: {}", id, error);
+                    // Log failure if request context is available
+                    if (request != null) {
+                        return auditService.logFailure(
+                                AuditAction.API_DELETED,
+                                EntityType.API,
+                                id,
+                                "unknown",
+                                "Failed to delete API: " + error.getMessage(),
+                                request
+                        ).then(Mono.error(error));
+                    } else {
+                        return Mono.error(error);
+                    }
                 });
+    }
+
+    /**
+     * Deletes a UnifiedApiDocument and its corresponding Swagger and Postman documents.
+     * This overload is for internal system operations that don't have an HTTP request context.
+     * Audit logging will still be performed but without HTTP metadata (IP, user agent).
+     *
+     * @param id The ID of the UnifiedApiDocument to delete.
+     * @return A Mono<Void> that completes when all documents are deleted.
+     */
+    public Mono<Void> deleteApi(String id) {
+        return deleteApi(id, null);
     }
 
 	/**

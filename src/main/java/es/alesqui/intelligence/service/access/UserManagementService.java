@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -17,12 +18,15 @@ import es.alesqui.intelligence.dto.admin.UserDetailResponse;
 import es.alesqui.intelligence.dto.admin.UserSummaryResponse;
 import es.alesqui.intelligence.model.access.Group;
 import es.alesqui.intelligence.model.access.GroupMembership;
+import es.alesqui.intelligence.model.audit.AuditAction;
+import es.alesqui.intelligence.model.audit.EntityType;
 import es.alesqui.intelligence.model.core.User;
 import es.alesqui.intelligence.model.core.enums.Role;
 import es.alesqui.intelligence.repository.ApiGroupLinkRepository;
 import es.alesqui.intelligence.repository.GroupMembershipRepository;
 import es.alesqui.intelligence.repository.GroupRepository;
 import es.alesqui.intelligence.repository.UserRepository;
+import es.alesqui.intelligence.service.audit.AuditService;
 import es.alesqui.intelligence.service.notification.EmailService;
 import es.alesqui.intelligence.service.notification.EmailTemplateService;
 import es.alesqui.intelligence.service.security.TokenService;
@@ -49,16 +53,32 @@ public class UserManagementService {
     private final EmailTemplateService emailTemplateService;
     private final EmailService emailService;
     private final TrialWorkspaceService trialWorkspaceService;
+    private final AuditService auditService;
 
     /**
      * Creates a new user with the specified username, password, and roles.
      * For TRIAL users, automatically creates a workspace group.
      * 
      * @param req the request containing username, password, and roles
+     * @param request the HTTP request for audit logging
      * @return Mono containing the newly created user
      */
-    public Mono<User> createUser(CreateUserRequest req) {
-        return this.createUser(req, trialWorkspaceService::createTrialWorkspace);
+    public Mono<User> createUser(CreateUserRequest req, ServerHttpRequest request) {
+        return this.createUser(req, trialWorkspaceService::createTrialWorkspace)
+                .flatMap(user -> {
+                    // Log user creation audit event
+                    String rolesStr = user.getRoles().stream()
+                            .map(Role::getLabel)
+                            .collect(Collectors.joining(", "));
+                    return auditService.logAction(
+                            AuditAction.USER_CREATED,
+                            EntityType.USER,
+                            user.getId(),
+                            user.getUsername(),
+                            "User created with roles: " + rolesStr + ", Active: " + user.isActive(),
+                            request
+                    ).thenReturn(user);
+                });
     }
 
     /**
@@ -68,10 +88,28 @@ public class UserManagementService {
      * 
      * @param userId the ID of the user to delete
      * @param currentUsername the username of the current authenticated user (to prevent self-deletion)
+     * @param request the HTTP request for audit logging
      * @return Mono signaling completion
      */
-    public Mono<Void> deleteUser(String userId, String currentUsername) {
-        return this.deleteUser(userId, currentUsername, trialWorkspaceService::deleteTrialUserWorkspace);
+    public Mono<Void> deleteUser(String userId, String currentUsername, ServerHttpRequest request) {
+        // Load user first for audit logging before deletion
+        return userRepository.findById(userId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId)))
+                .flatMap(user -> {
+                    // Perform deletion
+                    return this.deleteUser(userId, currentUsername, trialWorkspaceService::deleteTrialUserWorkspace)
+                            .then(
+                                // Log user deletion audit event
+                                auditService.logAction(
+                                        AuditAction.USER_DELETED,
+                                        EntityType.USER,
+                                        user.getId(),
+                                        user.getUsername(),
+                                        "User deleted",
+                                        request
+                                )
+                            );
+                });
     }
 
     /**
@@ -80,10 +118,22 @@ public class UserManagementService {
      * 
      * @param token    the activation token
      * @param password the new password to set
+     * @param request the HTTP request for audit logging
      * @return Mono containing the activated user
      */
-    public Mono<User> activateAccount(String token, String password) {
-        return this.activateAccount(token, password, trialWorkspaceService::createTrialWorkspace);
+    public Mono<User> activateAccount(String token, String password, ServerHttpRequest request) {
+        return this.activateAccount(token, password, trialWorkspaceService::createTrialWorkspace)
+                .flatMap(user -> {
+                    // Log account activation audit event
+                    return auditService.logAction(
+                            AuditAction.USER_ACTIVATED,
+                            EntityType.USER,
+                            user.getId(),
+                            user.getUsername(),
+                            "User account activated",
+                            request
+                    ).thenReturn(user);
+                });
     }
 
     /**
@@ -168,15 +218,30 @@ public class UserManagementService {
      * 
      * @param username the username of the user
      * @param req      the request containing new roles
+     * @param request the HTTP request for audit logging
      * @return the updated user
      */
-    public Mono<User> updateUserRoles(String username, UpdateUserRolesRequest req) {
+    public Mono<User> updateUserRoles(String username, UpdateUserRolesRequest req, ServerHttpRequest request) {
         Set<Role> newRoles = req.getRoles();
         return userRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + username)))
                 .flatMap(user -> {
+                    Set<Role> oldRoles = user.getRoles();
                     user.setRoles(newRoles.stream().collect(Collectors.toSet()));
-                    return userRepository.save(user);
+                    return userRepository.save(user)
+                            .flatMap(updatedUser -> {
+                                // Log role modification audit event
+                                String oldRolesStr = oldRoles.stream().map(Role::getLabel).collect(Collectors.joining(", "));
+                                String newRolesStr = newRoles.stream().map(Role::getLabel).collect(Collectors.joining(", "));
+                                return auditService.logAction(
+                                        AuditAction.USER_ROLES_CHANGED,
+                                        EntityType.USER,
+                                        updatedUser.getId(),
+                                        updatedUser.getUsername(),
+                                        "Roles changed from [" + oldRolesStr + "] to [" + newRolesStr + "]",
+                                        request
+                                ).thenReturn(updatedUser);
+                            });
                 });
     }
 
@@ -185,15 +250,30 @@ public class UserManagementService {
      * 
      * @param userId the ID of the user
      * @param req    the request containing new roles
+     * @param request the HTTP request for audit logging
      * @return the updated user
      */
-    public Mono<User> updateUserRolesById(String userId, UpdateUserRolesRequest req) {
+    public Mono<User> updateUserRolesById(String userId, UpdateUserRolesRequest req, ServerHttpRequest request) {
         Set<Role> newRoles = req.getRoles();
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId)))
                 .flatMap(user -> {
+                    Set<Role> oldRoles = user.getRoles();
                     user.setRoles(newRoles.stream().collect(Collectors.toSet()));
-                    return userRepository.save(user);
+                    return userRepository.save(user)
+                            .flatMap(updatedUser -> {
+                                // Log role modification audit event
+                                String oldRolesStr = oldRoles.stream().map(Role::getLabel).collect(Collectors.joining(", "));
+                                String newRolesStr = newRoles.stream().map(Role::getLabel).collect(Collectors.joining(", "));
+                                return auditService.logAction(
+                                        AuditAction.USER_ROLES_CHANGED,
+                                        EntityType.USER,
+                                        updatedUser.getId(),
+                                        updatedUser.getUsername(),
+                                        "Roles changed from [" + oldRolesStr + "] to [" + newRolesStr + "]",
+                                        request
+                                ).thenReturn(updatedUser);
+                            });
                 });
     }
 
@@ -202,29 +282,37 @@ public class UserManagementService {
      * 
      * @param userId the ID of the user to update
      * @param req    the request containing fields to update (all optional)
+     * @param request the HTTP request for audit logging
      * @return the updated user response with group count
      */
-    public Mono<UpdateUserResponse> updateUser(String userId, UpdateUserRequest req) {
+    public Mono<UpdateUserResponse> updateUser(String userId, UpdateUserRequest req, ServerHttpRequest request) {
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId)))
-                .flatMap(user -> {
+                .flatMap(originalUser -> {
+                    // Keep a copy of original for audit logging
+                    User userBeforeUpdate = User.builder()
+                            .id(originalUser.getId())
+                            .username(originalUser.getUsername())
+                            .roles(originalUser.getRoles())
+                            .build();
+
                     // Update username if provided
                     if (req.getUsername() != null && !req.getUsername().trim().isEmpty()) {
                         String newUsername = req.getUsername().trim();
-                        if (!newUsername.equals(user.getUsername())) {
+                        if (!newUsername.equals(originalUser.getUsername())) {
                             // Check if username is already taken
                             return userRepository.findByUsername(newUsername)
                                     .flatMap(existingUser -> Mono.<User>error(
                                             new IllegalStateException("Username already exists: " + newUsername)))
                                     .switchIfEmpty(Mono.defer(() -> {
-                                        user.setUsername(newUsername);
-                                        return Mono.just(user);
+                                        originalUser.setUsername(newUsername);
+                                        return Mono.just(originalUser);
                                     }))
-                                    .flatMap(u -> continueUpdate(u, req));
+                                    .flatMap(u -> continueUpdate(u, req, userBeforeUpdate, request));
                         }
                     }
 
-                    return continueUpdate(user, req);
+                    return continueUpdate(originalUser, req, userBeforeUpdate, request);
                 })
                 .flatMap(user -> {
                     // Get group count
@@ -244,14 +332,18 @@ public class UserManagementService {
     /**
      * Helper method to continue updating user fields after username validation.
      */
-    private Mono<User> continueUpdate(User user, UpdateUserRequest req) {
+    private Mono<User> continueUpdate(User user, UpdateUserRequest req, User userBeforeUpdate, ServerHttpRequest request) {
         boolean updated = false;
+        boolean passwordChanged = false;
+        boolean rolesChanged = false;
+        Set<Role> oldRoles = user.getRoles();
 
         // Update password if provided
         if (req.getPassword() != null && !req.getPassword().trim().isEmpty()) {
             String encodedPassword = passwordEncoder.encode(req.getPassword());
             user.setPassword(encodedPassword);
             updated = true;
+            passwordChanged = true;
         }
 
         // Update roles if provided
@@ -259,6 +351,8 @@ public class UserManagementService {
             // Check if trying to remove last SUPERADMIN
             if (user.getRoles().contains(Role.ROLE_SUPERADMIN) && !req.getRoles().contains(Role.ROLE_SUPERADMIN)) {
                 // Count total SUPERADMIN users
+                boolean finalUpdated = updated;
+                boolean finalPasswordChanged = passwordChanged;
                 return userRepository.findAll()
                         .filter(u -> u.getRoles().contains(Role.ROLE_SUPERADMIN))
                         .count()
@@ -268,17 +362,62 @@ public class UserManagementService {
                                         "Cannot remove SUPERADMIN role from the last SUPERADMIN user"));
                             }
                             user.setRoles(req.getRoles().stream().collect(Collectors.toSet()));
-                            return userRepository.save(user);
+                            return userRepository.save(user)
+                                    .flatMap(savedUser -> logUserUpdateAudit(savedUser, userBeforeUpdate, finalPasswordChanged, true, oldRoles, request));
                         });
             }
             user.setRoles(req.getRoles().stream().collect(Collectors.toSet()));
             updated = true;
+            rolesChanged = true;
         }
 
         if (updated) {
-            return userRepository.save(user);
+            boolean finalPasswordChanged = passwordChanged;
+            boolean finalRolesChanged = rolesChanged;
+            return userRepository.save(user)
+                    .flatMap(savedUser -> logUserUpdateAudit(savedUser, userBeforeUpdate, finalPasswordChanged, finalRolesChanged, oldRoles, request));
         }
         return Mono.just(user);
+    }
+
+    /**
+     * Helper method to log audit events for user updates.
+     */
+    private Mono<User> logUserUpdateAudit(User updatedUser, User userBeforeUpdate, boolean passwordChanged, 
+                                          boolean rolesChanged, Set<Role> oldRoles, ServerHttpRequest request) {
+        Mono<Void> auditMono = Mono.empty();
+        
+        // Log password change
+        if (passwordChanged) {
+            auditMono = auditMono.then(
+                    auditService.logAction(
+                            AuditAction.USER_PASSWORD_CHANGED,
+                            EntityType.USER,
+                            updatedUser.getId(),
+                            updatedUser.getUsername(),
+                            "User password changed",
+                            request
+                    )
+            );
+        }
+        
+        // Log roles change
+        if (rolesChanged) {
+            String oldRolesStr = oldRoles.stream().map(Role::getLabel).collect(Collectors.joining(", "));
+            String newRolesStr = updatedUser.getRoles().stream().map(Role::getLabel).collect(Collectors.joining(", "));
+            auditMono = auditMono.then(
+                    auditService.logAction(
+                            AuditAction.USER_ROLES_CHANGED,
+                            EntityType.USER,
+                            updatedUser.getId(),
+                            updatedUser.getUsername(),
+                            "Roles changed from [" + oldRolesStr + "] to [" + newRolesStr + "]",
+                            request
+                    )
+            );
+        }
+        
+        return auditMono.thenReturn(updatedUser);
     }
 
     /**
@@ -547,7 +686,7 @@ public class UserManagementService {
      * @param email the user's email address
      * @return Mono signaling completion
      */
-    public Mono<Void> requestPasswordReset(String email) {
+    public Mono<Void> requestPasswordReset(String email, ServerHttpRequest request) {
         return userRepository.findByUsername(email)
                 .switchIfEmpty(Mono.defer(() -> {
                     // For security, don't reveal if the email exists or not
@@ -574,7 +713,15 @@ public class UserManagementService {
                             .flatMap(savedUser -> {
                                 log.info("[PasswordReset] Sending password reset email to: {}", email);
                                 String htmlContent = emailTemplateService.buildPasswordResetEmail(email, resetToken);
-                                return emailService.sendHtmlEmail(email, "Password Reset Request - Alesqui Intelligence", htmlContent);
+                                return emailService.sendHtmlEmail(email, "Password Reset Request - Alesqui Intelligence", htmlContent)
+                                        .then(auditService.logAction(
+                                                AuditAction.AUTH_PASSWORD_RESET,
+                                                EntityType.USER,
+                                                savedUser.getId(),
+                                                savedUser.getUsername(),
+                                                "Password reset requested - email sent",
+                                                request
+                                        ));
                             });
                 })
                 .then();
@@ -612,9 +759,10 @@ public class UserManagementService {
      * 
      * @param token the password reset token
      * @param newPassword the new password to set
+     * @param request the HTTP request for audit logging
      * @return Mono containing the updated user
      */
-    public Mono<User> resetPassword(String token, String newPassword) {
+    public Mono<User> resetPassword(String token, String newPassword, ServerHttpRequest request) {
         return validatePasswordResetToken(token)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("Invalid or expired password reset token")))
                 .flatMap(user -> {
@@ -631,7 +779,41 @@ public class UserManagementService {
 
                     log.info("[PasswordReset] Password successfully reset for user: {}", user.getUsername());
 
-                    return userRepository.save(user);
+                    return userRepository.save(user)
+                            .flatMap(savedUser -> {
+                                // Log password reset completion audit event
+                                return auditService.logAction(
+                                        AuditAction.AUTH_PASSWORD_RESET,
+                                        EntityType.USER,
+                                        savedUser.getId(),
+                                        savedUser.getUsername(),
+                                        "Password reset completed successfully",
+                                        request
+                                ).thenReturn(savedUser);
+                            });
                 });
+    }
+
+    /**
+     * Logs a failed user operation for audit purposes.
+     * Used in error handlers to track failed administrative actions.
+     * 
+     * @param action the action that was attempted
+     * @param userId the user ID (if known)
+     * @param username the username (if known)
+     * @param errorMessage the error message
+     * @param request the HTTP request for audit logging
+     * @return Mono signaling completion
+     */
+    public Mono<Void> logUserOperationFailure(AuditAction action, String userId, String username,
+                                             String errorMessage, ServerHttpRequest request) {
+        return auditService.logFailure(
+                action,
+                EntityType.USER,
+                userId != null ? userId : "unknown",
+                username != null ? username : "unknown",
+                errorMessage,
+                request
+        );
     }
 }

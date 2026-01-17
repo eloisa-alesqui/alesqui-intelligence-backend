@@ -3,14 +3,20 @@ package es.alesqui.intelligence.service.access;
 import java.time.Instant;
 import java.util.List;
 
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.dto.admin.AssignGroupsRequest;
 import es.alesqui.intelligence.dto.admin.AssignUsersRequest;
+import es.alesqui.intelligence.model.access.Group;
 import es.alesqui.intelligence.model.access.GroupMembership;
+import es.alesqui.intelligence.model.audit.AuditAction;
+import es.alesqui.intelligence.model.audit.EntityType;
+import es.alesqui.intelligence.model.core.User;
 import es.alesqui.intelligence.repository.GroupMembershipRepository;
 import es.alesqui.intelligence.repository.GroupRepository;
 import es.alesqui.intelligence.repository.UserRepository;
+import es.alesqui.intelligence.service.audit.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -28,25 +34,43 @@ public class GroupMembershipService {
     private final GroupMembershipRepository membershipRepository;
     private final GroupRepository groupRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
 
     /**
      * Assigns users to a group.
      * 
      * @param groupId the ID of the group
      * @param req     the request containing user IDs to assign
+     * @param request the HTTP request for audit logging
      * @return a Flux of assigned group memberships
      */
-    public Flux<GroupMembership> assignUsers(String groupId, AssignUsersRequest req) {
-        Mono<Boolean> groupExists = groupRepository.existsById(groupId)
-                .filter(exists -> exists)
+    public Flux<GroupMembership> assignUsers(String groupId, AssignUsersRequest req, ServerHttpRequest request) {
+        // Load group and users upfront for audit logging
+        Mono<Group> groupMono = groupRepository.findById(groupId)
                 .switchIfEmpty(Mono.error(new IllegalStateException("Group not found: " + groupId)));
 
-        return groupExists.flatMapMany(exists -> Flux.fromIterable(req.getUserIds())
-                .flatMap(userId -> userRepository.findById(userId)
-                        .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId)))
-                        .then(membershipRepository.existsByUserIdAndGroupId(userId, groupId)
-                                .flatMap(membershipExists -> membershipExists ? Mono.empty()
-                                        : membershipRepository.save(buildMembership(userId, groupId))))));
+        return groupMono.flatMapMany(group ->
+                Flux.fromIterable(req.getUserIds())
+                        .flatMap(userId -> userRepository.findById(userId)
+                                .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId)))
+                                .flatMap(user -> membershipRepository.existsByUserIdAndGroupId(userId, groupId)
+                                        .flatMap(membershipExists -> {
+                                            if (membershipExists) {
+                                                return Mono.empty();
+                                            }
+                                            return membershipRepository.save(buildMembership(userId, groupId))
+                                                    .flatMap(membership -> {
+                                                        // Log audit event for user assigned to group
+                                                        return auditService.logAction(
+                                                                AuditAction.USER_ASSIGNED_TO_GROUP,
+                                                                EntityType.GROUP_MEMBERSHIP,
+                                                                membership.getId(),
+                                                                user.getUsername() + " → " + group.getName(),
+                                                                "User '" + user.getUsername() + "' assigned to group '" + group.getName() + "'",
+                                                                request
+                                                        ).thenReturn(membership);
+                                                    });
+                                        }))));
     }
 
     /**
@@ -54,26 +78,47 @@ public class GroupMembershipService {
      * 
      * @param groupId the ID of the group
      * @param userId  the ID of the user to remove
+     * @param request the HTTP request for audit logging
      * @return a Mono signaling completion
      */
-    public Mono<Void> removeUserFromGroup(String groupId, String userId) {
-        return groupRepository.existsById(groupId)
-                .filter(exists -> exists)
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)))
-                .then(userRepository.existsById(userId)
-                        .filter(exists -> exists)
-                        .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId))))
-                .then(membershipRepository.existsByUserIdAndGroupId(userId, groupId)
-                        .flatMap(exists -> {
-                            if (!exists) {
-                                return Mono.error(new IllegalArgumentException(
-                                        "User " + userId + " is not a member of group " + groupId));
-                            }
-                            return membershipRepository.findByUserId(userId)
-                                    .filter(membership -> membership.getGroupId().equals(groupId))
-                                    .next()
-                                    .flatMap(membership -> membershipRepository.deleteById(membership.getId()));
-                        }));
+    public Mono<Void> removeUserFromGroup(String groupId, String userId, ServerHttpRequest request) {
+        // Load group and user upfront for audit logging
+        Mono<Group> groupMono = groupRepository.findById(groupId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)));
+        
+        Mono<User> userMono = userRepository.findById(userId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId)));
+
+        return Mono.zip(groupMono, userMono)
+                .flatMap(tuple -> {
+                    Group group = tuple.getT1();
+                    User user = tuple.getT2();
+                    
+                    return membershipRepository.existsByUserIdAndGroupId(userId, groupId)
+                            .flatMap(exists -> {
+                                if (!exists) {
+                                    return Mono.error(new IllegalArgumentException(
+                                            "User " + userId + " is not a member of group " + groupId));
+                                }
+                                return membershipRepository.findByUserId(userId)
+                                        .filter(membership -> membership.getGroupId().equals(groupId))
+                                        .next()
+                                        .flatMap(membership ->
+                                                membershipRepository.deleteById(membership.getId())
+                                                        .then(
+                                                                // Log audit event for user removed from group
+                                                                auditService.logAction(
+                                                                        AuditAction.USER_REMOVED_FROM_GROUP,
+                                                                        EntityType.GROUP_MEMBERSHIP,
+                                                                        membership.getId(),
+                                                                        user.getUsername() + " ✗ " + group.getName(),
+                                                                        "User '" + user.getUsername() + "' removed from group '" + group.getName() + "'",
+                                                                        request
+                                                                )
+                                                        )
+                                        );
+                            });
+                });
     }
 
     /**
@@ -81,19 +126,36 @@ public class GroupMembershipService {
      * 
      * @param userId the ID of the user
      * @param req    the request containing group IDs to assign the user to
+     * @param request the HTTP request for audit logging
      * @return a Flux of assigned group memberships
      */
-    public Flux<GroupMembership> assignGroupsToUser(String userId, AssignGroupsRequest req) {
-        Mono<Boolean> userExists = userRepository.existsById(userId)
-                .filter(exists -> exists)
+    public Flux<GroupMembership> assignGroupsToUser(String userId, AssignGroupsRequest req, ServerHttpRequest request) {
+        // Load user upfront for audit logging
+        Mono<User> userMono = userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("User not found: " + userId)));
 
-        return userExists.flatMapMany(exists -> Flux.fromIterable(req.getGroupIds())
-                .flatMap(groupId -> groupRepository.findById(groupId)
-                        .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)))
-                        .then(membershipRepository.existsByUserIdAndGroupId(userId, groupId)
-                                .flatMap(membershipExists -> membershipExists ? Mono.empty()
-                                        : membershipRepository.save(buildMembership(userId, groupId))))));
+        return userMono.flatMapMany(user ->
+                Flux.fromIterable(req.getGroupIds())
+                        .flatMap(groupId -> groupRepository.findById(groupId)
+                                .switchIfEmpty(Mono.error(new IllegalArgumentException("Group not found: " + groupId)))
+                                .flatMap(group -> membershipRepository.existsByUserIdAndGroupId(userId, groupId)
+                                        .flatMap(membershipExists -> {
+                                            if (membershipExists) {
+                                                return Mono.empty();
+                                            }
+                                            return membershipRepository.save(buildMembership(userId, groupId))
+                                                    .flatMap(membership -> {
+                                                        // Log audit event for user assigned to group (user-centric view)
+                                                        return auditService.logAction(
+                                                                AuditAction.USER_ASSIGNED_TO_GROUP,
+                                                                EntityType.GROUP_MEMBERSHIP,
+                                                                membership.getId(),
+                                                                user.getUsername() + " → " + group.getName(),
+                                                                "User '" + user.getUsername() + "' assigned to group '" + group.getName() + "'",
+                                                                request
+                                                        ).thenReturn(membership);
+                                                    });
+                                        }))));
     }
 
     /**
@@ -103,10 +165,11 @@ public class GroupMembershipService {
      * 
      * @param userId  the ID of the user
      * @param groupId the ID of the group to remove the user from
+     * @param request the HTTP request for audit logging
      * @return a Mono signaling completion
      */
-    public Mono<Void> removeGroupFromUser(String userId, String groupId) {
-        return removeUserFromGroup(groupId, userId);
+    public Mono<Void> removeGroupFromUser(String userId, String groupId, ServerHttpRequest request) {
+        return removeUserFromGroup(groupId, userId, request);
     }
 
     /**

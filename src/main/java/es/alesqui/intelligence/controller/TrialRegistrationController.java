@@ -85,7 +85,7 @@ public class TrialRegistrationController {
         log.info("[TrialRegistration] Received trial registration request for email: {} from IP: {}", 
             request.getEmail(), ipAddress);
         
-        return trialRegistrationService.registerTrialUser(request, ipAddress)
+        return trialRegistrationService.registerTrialUser(request, ipAddress, serverRequest)
             .doOnSuccess(response -> 
                 log.info("[TrialRegistration] Successfully registered trial user: {}", response.getEmail())
             )

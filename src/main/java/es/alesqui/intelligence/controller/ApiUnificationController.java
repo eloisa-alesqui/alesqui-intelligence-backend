@@ -4,6 +4,7 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.*;
 
@@ -39,10 +40,12 @@ public class ApiUnificationController {
      * Unifies Swagger and Postman documents by API name and saves the unified document.
      *
      * @param apiName The name of the API to unify.
+     * @param request the HTTP request for audit logging
      * @return ResponseEntity containing the result of the operation.
      */
     @PostMapping("/unify")
-    public Mono<ResponseEntity<String>> unifyAndSaveApiDocuments(@RequestParam String apiName) {
+    public Mono<ResponseEntity<String>> unifyAndSaveApiDocuments(@RequestParam String apiName, 
+                                                                   ServerHttpRequest request) {
         log.info("Starting unification process for API: {}", apiName);
 
         Mono<SwaggerDocument> swaggerMono = swaggerService.findByName(apiName)
@@ -51,8 +54,8 @@ public class ApiUnificationController {
         return swaggerMono
             .flatMap(swaggerDoc -> 
                 postmanService.findByName(apiName)
-                    .flatMap(postmanDoc -> unifyAndSave(swaggerDoc, postmanDoc))
-                    .switchIfEmpty(Mono.defer(() -> unifyAndSave(swaggerDoc, null)))
+                    .flatMap(postmanDoc -> unifyAndSave(swaggerDoc, postmanDoc, request))
+                    .switchIfEmpty(Mono.defer(() -> unifyAndSave(swaggerDoc, null, request)))
             )
             .map(savedDoc -> ResponseEntity.ok("Unified API document saved successfully with ID: " + savedDoc.getId()))
             .onErrorResume(e -> {
@@ -68,12 +71,14 @@ public class ApiUnificationController {
      *
      * @param apiName The name of the API to configure.
      * @param apiConfiguration The configuration object from the request body.
+     * @param request the HTTP request for audit logging
      * @return A Mono with the updated UnifiedApiDocument.
      */
     @PutMapping("/{apiName}/configuration")
     public Mono<ResponseEntity<UnifiedApiDocument>> updateApiConfiguration(
             @PathVariable String apiName,
-            @RequestBody ApiConfiguration apiConfiguration) {
+            @RequestBody ApiConfiguration apiConfiguration,
+            ServerHttpRequest request) {
         
         log.info("Updating configuration for API: {}", apiName);
         
@@ -87,7 +92,7 @@ public class ApiUnificationController {
                                         log.warn("User {} attempted to modify API {} but lacks permission", username, apiName);
                                         return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<UnifiedApiDocument>build());
                                     }
-                                    return unifiedApiService.updateApiConfiguration(apiName, apiConfiguration)
+                                    return unifiedApiService.updateApiConfiguration(apiName, apiConfiguration, request)
                                             .map(ResponseEntity::ok);
                                 })
                         )
@@ -103,12 +108,14 @@ public class ApiUnificationController {
      *
      * @param id The unique identifier of the UnifiedApiDocument.
      * @param statusUpdate A map containing the 'active' key, e.g., { "active": true }.
+     * @param request the HTTP request for audit logging
      * @return A Mono with the updated UnifiedApiDocument.
      */
     @PatchMapping("/{id}/status")
     public Mono<ResponseEntity<UnifiedApiDocument>> updateApiStatus(
             @PathVariable String id,
-            @RequestBody Map<String, Boolean> statusUpdate) {
+            @RequestBody Map<String, Boolean> statusUpdate,
+            ServerHttpRequest request) {
         
         Boolean active = statusUpdate.get("active");
         if (active == null) {
@@ -126,7 +133,7 @@ public class ApiUnificationController {
                                 log.warn("User {} attempted to modify status of API {} but lacks permission", username, id);
                                 return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<UnifiedApiDocument>build());
                             }
-                            return unifiedApiService.updateApiStatus(id, active)
+                            return unifiedApiService.updateApiStatus(id, active, request)
                                     .map(ResponseEntity::ok)
                                     .defaultIfEmpty(ResponseEntity.notFound().build());
                         })
@@ -190,11 +197,12 @@ public class ApiUnificationController {
      * The operation is atomic; if any part of the deletion fails, the transaction should ideally be rolled back.
      *
      * @param id The unique identifier (String) of the UnifiedApiDocument to be deleted.
+     * @param request the HTTP request for audit logging
      * @return An empty Mono (Mono<Void>) that completes when the deletion operation is finished,
      * or emits an error if the API with the given ID is not found or if the deletion fails.
      */
 	@DeleteMapping("/{id}")
-	public Mono<ResponseEntity<Void>> deleteApi(@PathVariable String id) {
+	public Mono<ResponseEntity<Void>> deleteApi(@PathVariable String id, ServerHttpRequest request) {
 		log.info("DELETE request received for unification id: {}", id);
         
         // Check modification permissions before deleting
@@ -205,7 +213,7 @@ public class ApiUnificationController {
                                 log.warn("User {} attempted to delete API {} but lacks permission", username, id);
                                 return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<Void>build());
                             }
-                            return unifiedApiService.deleteApi(id)
+                            return unifiedApiService.deleteApi(id, request)
                                     .then(Mono.just(new ResponseEntity<Void>(HttpStatus.NO_CONTENT))) 
                                     .defaultIfEmpty(new ResponseEntity<>(HttpStatus.NOT_FOUND));
                         })
@@ -218,11 +226,13 @@ public class ApiUnificationController {
      *
      * @param swaggerDoc The mandatory Swagger document.
      * @param postmanDoc The optional Postman document.
+     * @param request the HTTP request for audit logging
      * @return A Mono with the saved UnifiedApiDocument.
      */
-    private Mono<UnifiedApiDocument> unifyAndSave(SwaggerDocument swaggerDoc, @Nullable PostmanDocument postmanDoc) {
+    private Mono<UnifiedApiDocument> unifyAndSave(SwaggerDocument swaggerDoc, @Nullable PostmanDocument postmanDoc, 
+                                                   ServerHttpRequest request) {
         return Mono.fromCallable(() -> apiUnificationService.unifyApiDocuments(swaggerDoc, postmanDoc))
-                   .flatMap(apiUnificationService::save) 
+                   .flatMap(unifiedDoc -> apiUnificationService.save(unifiedDoc, request)) 
                    .doOnSuccess(savedDoc -> log.info("Successfully unified and saved document for API: {}", savedDoc.getName()))
                    .doOnError(e -> log.error("Error in unifyAndSave for API {}: {}", swaggerDoc.getName(), e.getMessage()));
     }

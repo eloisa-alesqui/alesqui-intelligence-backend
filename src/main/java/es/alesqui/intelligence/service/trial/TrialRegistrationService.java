@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Set;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -60,12 +61,14 @@ public class TrialRegistrationService {
      * 
      * @param request the registration request containing email
      * @param ipAddress the client IP address for rate limiting
+     * @param httpRequest the HTTP request for audit logging
      * @return Mono containing the registration response
      * @throws ResponseStatusException 429 if rate limited, 409 if email exists
      */
     public Mono<TrialRegistrationResponse> registerTrialUser(
             TrialRegistrationRequest request, 
-            String ipAddress) {
+            String ipAddress,
+            ServerHttpRequest httpRequest) {
         
         String email = request.getEmail().trim().toLowerCase();
         
@@ -94,14 +97,15 @@ public class TrialRegistrationService {
                             )
                         );
                     })
-                    .switchIfEmpty(Mono.defer(() -> createTrialUser(email, ipAddress)));
+                    .switchIfEmpty(Mono.defer(() -> createTrialUser(email, ipAddress, httpRequest)));
             });
     }
     
     /**
      * Creates the trial user with proper configuration.
      */
-    private Mono<TrialRegistrationResponse> createTrialUser(String email, String ipAddress) {
+    private Mono<TrialRegistrationResponse> createTrialUser(String email, String ipAddress, 
+                                                            ServerHttpRequest httpRequest) {
         // Step 3: Calculate trial dates using configured duration
         Instant now = Instant.now();
         int trialDurationDays = trialConfig.getDurationDays();
@@ -117,7 +121,7 @@ public class TrialRegistrationService {
         createUserRequest.setRoles(Set.of(Role.ROLE_TRIAL));
         
         // Create user (this will send activation email and set up for workspace creation)
-        return userManagementService.createUser(createUserRequest)
+        return userManagementService.createUser(createUserRequest, httpRequest)
             .flatMap(user -> {
                 // Update user with trial dates
                 user.setTrialStartDate(now);
