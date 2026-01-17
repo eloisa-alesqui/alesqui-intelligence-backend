@@ -2,15 +2,19 @@ package es.alesqui.intelligence.service.access;
 
 import java.time.Instant;
 
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 
 import es.alesqui.intelligence.model.access.Group;
 import es.alesqui.intelligence.model.access.GroupMembership;
+import es.alesqui.intelligence.model.audit.AuditAction;
+import es.alesqui.intelligence.model.audit.EntityType;
 import es.alesqui.intelligence.model.core.User;
 import es.alesqui.intelligence.repository.ApiGroupLinkRepository;
 import es.alesqui.intelligence.repository.GroupMembershipRepository;
 import es.alesqui.intelligence.repository.GroupRepository;
 import es.alesqui.intelligence.service.UnifiedApiService;
+import es.alesqui.intelligence.service.audit.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
@@ -28,6 +32,7 @@ public class TrialWorkspaceService {
     private final GroupMembershipRepository membershipRepository;
     private final ApiGroupLinkRepository apiGroupLinkRepository;
     private final UnifiedApiService unifiedApiService;
+    private final AuditService auditService;
 
     /**
      * Creates a workspace group automatically for TRIAL users.
@@ -35,9 +40,10 @@ public class TrialWorkspaceService {
      * Group code: "trial-{userId}"
      * 
      * @param user the TRIAL user for whom to create the workspace
+     * @param request the HTTP request for audit logging (optional, can be null)
      * @return Mono of the created Group
      */
-    public Mono<Group> createTrialWorkspace(User user) {
+    public Mono<Group> createTrialWorkspace(User user, ServerHttpRequest request) {
         String username = user.getUsername();
         String displayName = username.contains("@")
                 ? username.substring(0, username.indexOf("@"))
@@ -60,6 +66,22 @@ public class TrialWorkspaceService {
                     membership.setGroupId(savedGroup.getId());
                     membership.setCreatedAt(Instant.now());
                     return membershipRepository.save(membership).thenReturn(savedGroup);
+                })
+                .flatMap(savedGroup -> {
+                    // Log trial workspace creation audit event (if request context available)
+                    if (request != null) {
+                        return auditService.logActionWithUser(
+                                AuditAction.GROUP_CREATED,
+                                EntityType.GROUP,
+                                savedGroup.getId(),
+                                savedGroup.getName(),
+                                user.getUsername(),
+                                user.getId(),
+                                "Trial workspace auto-created: " + savedGroup.getCode(),
+                                request
+                        ).thenReturn(savedGroup);
+                    }
+                    return Mono.just(savedGroup);
                 })
                 .doOnSuccess(g -> log.info("Successfully created trial workspace {} for user {}",
                         g.getCode(), username))

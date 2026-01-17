@@ -64,12 +64,15 @@ public class UserManagementService {
      * @return Mono containing the newly created user
      */
     public Mono<User> createUser(CreateUserRequest req, ServerHttpRequest request) {
-        return this.createUser(req, trialWorkspaceService::createTrialWorkspace)
+        return this.createUser(req, user -> trialWorkspaceService.createTrialWorkspace(user, request))
                 .flatMap(user -> {
                     // Log user creation audit event
                     String rolesStr = user.getRoles().stream()
                             .map(Role::getLabel)
                             .collect(Collectors.joining(", "));
+                    
+                    // For trial registration (public endpoint), use logActionWithUser
+                    // For admin creation, logAction will work since admin is authenticated
                     return auditService.logAction(
                             AuditAction.USER_CREATED,
                             EntityType.USER,
@@ -77,7 +80,22 @@ public class UserManagementService {
                             user.getUsername(),
                             "User created with roles: " + rolesStr + ", Active: " + user.isActive(),
                             request
-                    ).thenReturn(user);
+                    ).onErrorResume(e -> {
+                        // If logAction fails (no authenticated user), fall back to logActionWithUser
+                        // This happens during trial registration (public endpoint)
+                        log.debug("No authenticated user context for USER_CREATED audit, using created user as actor: {}", 
+                            user.getUsername());
+                        return auditService.logActionWithUser(
+                                AuditAction.USER_CREATED,
+                                EntityType.USER,
+                                user.getId(),
+                                user.getUsername(),
+                                user.getUsername(),
+                                user.getId(),
+                                "User created with roles: " + rolesStr + ", Active: " + user.isActive(),
+                                request
+                        );
+                    }).thenReturn(user);
                 });
     }
 
@@ -122,14 +140,17 @@ public class UserManagementService {
      * @return Mono containing the activated user
      */
     public Mono<User> activateAccount(String token, String password, ServerHttpRequest request) {
-        return this.activateAccount(token, password, trialWorkspaceService::createTrialWorkspace)
+        return this.activateAccount(token, password, user -> trialWorkspaceService.createTrialWorkspace(user, request))
                 .flatMap(user -> {
                     // Log account activation audit event
-                    return auditService.logAction(
+                    // Use logActionWithUser since the user is not authenticated during activation
+                    return auditService.logActionWithUser(
                             AuditAction.USER_ACTIVATED,
                             EntityType.USER,
                             user.getId(),
                             user.getUsername(),
+                            user.getUsername(),
+                            user.getId(),
                             "User account activated",
                             request
                     ).thenReturn(user);
