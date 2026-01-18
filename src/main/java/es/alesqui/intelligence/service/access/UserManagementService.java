@@ -27,6 +27,7 @@ import es.alesqui.intelligence.repository.GroupMembershipRepository;
 import es.alesqui.intelligence.repository.GroupRepository;
 import es.alesqui.intelligence.repository.UserRepository;
 import es.alesqui.intelligence.service.audit.AuditService;
+import es.alesqui.intelligence.service.identity.UserService;
 import es.alesqui.intelligence.service.notification.EmailService;
 import es.alesqui.intelligence.service.notification.EmailTemplateService;
 import es.alesqui.intelligence.service.security.TokenService;
@@ -54,6 +55,7 @@ public class UserManagementService {
     private final EmailService emailService;
     private final TrialWorkspaceService trialWorkspaceService;
     private final AuditService auditService;
+    private final UserService userService;
 
     /**
      * Creates a new user with the specified username, password, and roles.
@@ -70,32 +72,37 @@ public class UserManagementService {
                     String rolesStr = user.getRoles().stream()
                             .map(Role::getLabel)
                             .collect(Collectors.joining(", "));
+                    String details = "User created with roles: " + rolesStr + ", Active: " + user.isActive();
                     
-                    // For trial registration (public endpoint), use logActionWithUser
-                    // For admin creation, logAction will work since admin is authenticated
-                    return auditService.logAction(
-                            AuditAction.USER_CREATED,
-                            EntityType.USER,
-                            user.getId(),
-                            user.getUsername(),
-                            "User created with roles: " + rolesStr + ", Active: " + user.isActive(),
-                            request
-                    ).onErrorResume(e -> {
-                        // If logAction fails (no authenticated user), fall back to logActionWithUser
-                        // This happens during trial registration (public endpoint)
-                        log.debug("No authenticated user context for USER_CREATED audit, using created user as actor: {}", 
-                            user.getUsername());
-                        return auditService.logActionWithUser(
-                                AuditAction.USER_CREATED,
-                                EntityType.USER,
-                                user.getId(),
-                                user.getUsername(),
-                                user.getUsername(),
-                                user.getId(),
-                                "User created with roles: " + rolesStr + ", Active: " + user.isActive(),
-                                request
-                        );
-                    }).thenReturn(user);
+                    // Check if there's an authenticated user (admin creating user) or not (trial registration)
+                    return userService.getCurrentUser()
+                            .flatMap(authenticatedUser -> {
+                                // Admin is creating the user - log with admin as actor
+                                return auditService.logAction(
+                                        AuditAction.USER_CREATED,
+                                        EntityType.USER,
+                                        user.getId(),
+                                        user.getUsername(),
+                                        details,
+                                        request
+                                );
+                            })
+                            .switchIfEmpty(Mono.defer(() -> {
+                                // No authenticated user (trial registration) - log with created user as actor
+                                log.debug("No authenticated user for USER_CREATED audit, using created user as actor: {}", 
+                                    user.getUsername());
+                                return auditService.logActionWithUser(
+                                        AuditAction.USER_CREATED,
+                                        EntityType.USER,
+                                        user.getId(),
+                                        user.getUsername(),
+                                        user.getUsername(),
+                                        user.getId(),
+                                        details,
+                                        request
+                                );
+                            }))
+                            .thenReturn(user);
                 });
     }
 
