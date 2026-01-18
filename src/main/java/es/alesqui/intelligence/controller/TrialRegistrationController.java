@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import es.alesqui.intelligence.config.DeploymentConfig;
 import es.alesqui.intelligence.dto.trial.TrialRegistrationRequest;
 import es.alesqui.intelligence.dto.trial.TrialRegistrationResponse;
 import es.alesqui.intelligence.service.trial.TrialRegistrationService;
@@ -42,6 +43,7 @@ import reactor.core.publisher.Mono;
 public class TrialRegistrationController {
     
     private final TrialRegistrationService trialRegistrationService;
+    private final DeploymentConfig deploymentConfig;
     
     /**
      * Registers a new trial user account.
@@ -78,6 +80,15 @@ public class TrialRegistrationController {
     public Mono<TrialRegistrationResponse> registerTrial(
             @Valid @RequestBody TrialRegistrationRequest request,
             ServerHttpRequest serverRequest) {
+        
+        // Validate that trial registration is only available in TRIAL mode
+        if (deploymentConfig.isCorporate()) {
+            log.warn("[TrialRegistration] Trial registration attempted in CORPORATE mode, rejecting");
+            return Mono.error(new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "Trial registration is not available in this deployment. Please contact your administrator."
+            ));
+        }
         
         // Extract client IP address for rate limiting
         String ipAddress = extractIpAddress(serverRequest);

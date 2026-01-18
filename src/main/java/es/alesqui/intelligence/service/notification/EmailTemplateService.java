@@ -1,14 +1,16 @@
-package es.alesqui.intelligence.service.notification;
+package es.alesqui. intelligence.service.notification;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StreamUtils;
 
+import es.alesqui.intelligence.config.DeploymentConfig;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -20,11 +22,13 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class EmailTemplateService {
 
     private static final String ACTIVATION_TEMPLATE_PATH = "templates/email/activation-email.html";
     private static final String PASSWORD_RESET_TEMPLATE_PATH = "templates/email/password-reset-email.html";
-    private static final String LOGO_PATH = "static/images/logo.png";
+
+    private final DeploymentConfig deploymentConfig;
 
     @Value("${frontend.url}")
     private String frontendUrl;
@@ -35,29 +39,71 @@ public class EmailTemplateService {
 
     /**
      * Builds the HTML content for an account activation email.
+     * Context-aware:  differentiates between TRIAL and CORPORATE modes.
      * 
      * @param email the recipient's email address
      * @param token the activation token
      * @param role the user's role label (e.g., "Business", "IT")
+     * @param createdByAdmin optional admin username who created the user (CORPORATE mode)
      * @return fully rendered HTML email content
      */
-    public String buildActivationEmail(String email, String token, String role) {
+    public String buildActivationEmail(String email, String token, String role, String createdByAdmin) {
         String activationUrl = String.format("%s/activate-account?token=%s", frontendUrl, token);
         
         try {
             String template = loadActivationTemplate();
             
+            // Context-specific replacements
+            String context = getActivationContext(createdByAdmin);
+            
             String html = template
                 .replace("{{email}}", email)
                 .replace("{{role}}", role)
-                .replace("{{activationUrl}}", activationUrl);
+                .replace("{{activationUrl}}", activationUrl)
+                .replace("{{context}}", context);
             
-            log.debug("Built activation email for: {}", email);
+            log.debug("Built {} activation email for:  {}", 
+                    deploymentConfig.getMode(), email);
             return html;
             
         } catch (IOException e) {
             log.error("Failed to load activation email template, using fallback", e);
-            return buildFallbackActivationEmail(email, role, activationUrl);
+            return buildFallbackActivationEmail(email, role, activationUrl, createdByAdmin);
+        }
+    }
+
+    /**
+     * Builds the HTML content for an account activation email.
+     * This overload is used when the creating admin is unknown or not applicable,
+     * typically for trial user self-registration.
+     * 
+     * @param email the recipient's email address
+     * @param token the activation token for account verification
+     * @param role the user's role label (e.g., "Business", "IT", "Trial")
+     * @return fully rendered HTML email content
+     */
+    public String buildActivationEmail(String email, String token, String role) {
+        return buildActivationEmail(email, token, role, null);
+    }
+
+    /**
+     * Generates context message based on deployment mode.
+     */
+    private String getActivationContext(String createdByAdmin) {
+        if (deploymentConfig.isCorporate() && StringUtils.isNotBlank(createdByAdmin)) {
+            return String.format(
+                "Your account has been created by <strong>%s</strong> from %s.",
+                createdByAdmin, 
+                deploymentConfig.getCompanyName()
+            );
+        } else if (deploymentConfig.isCorporate()) {
+            return String.format(
+                "Your account has been created by an administrator at %s.",
+                deploymentConfig.getCompanyName()
+            );
+        } else {
+            // TRIAL mode
+            return "Thank you for signing up for a trial of Alesqui Intelligence!";
         }
     }
 
@@ -122,22 +168,39 @@ public class EmailTemplateService {
     /**
      * Fallback activation email body if template loading fails.
      */
-    private String buildFallbackActivationEmail(String email, String role, String activationUrl) {
+    private String buildFallbackActivationEmail(String email, String role, 
+                                                String activationUrl, String createdByAdmin) {
+        String context = getActivationContext(createdByAdmin);
+        
         return String.format("""
             <html>
             <body style="font-family: Arial, sans-serif; padding: 20px;">
                 <h2>Welcome to Alesqui Intelligence!</h2>
-                <p>Your account has been created:</p>
+                <p>%s</p>
                 <ul>
                     <li><strong>Email:</strong> %s</li>
                     <li><strong>Role:</strong> %s</li>
                 </ul>
-                <p>Click here to activate your account:</p>
-                <p><a href="%s" style="background-color: #4F46E5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Activate Account</a></p>
-                <p><small>Link expires in 48 hours</small></p>
+                <p>Click here to activate your account: </p>
+                <a href="%s" style="background:  #2563EB; color: white; padding: 12px 24px; 
+                   text-decoration: none; border-radius: 6px; display: inline-block;">
+                    Activate Account
+                </a>
+                <p style="color: #6B7280; font-size:  12px; margin-top: 20px;">
+                    This link will expire in 48 hours.
+                </p>
+                <p style="color: #6B7280; font-size: 12px;">
+                    Best regards,<br>The %s Team
+                </p>
             </body>
             </html>
-            """, email, role, activationUrl);
+            """, 
+            context,
+            email, 
+            role, 
+            activationUrl,
+            deploymentConfig.getCompanyName()
+        );
     }
 
     /**
@@ -150,14 +213,22 @@ public class EmailTemplateService {
                 <h2>Password Reset Request</h2>
                 <p>Hello,</p>
                 <p>We received a request to reset the password for your account (%s).</p>
-                <p>Click the link below to reset your password:</p>
-                <p><a href="%s" style="background-color: #DC2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Password</a></p>
-                <p><small>Link expires in 1 hour</small></p>
-                <p>If you didn't request this, please ignore this email.</p>
-                <hr>
-                <p style="color: #6B7280; font-size: 12px;">Best regards,<br>The Alesqui Team</p>
+                <p>Click the link below to reset your password: </p>
+                <a href="%s" style="background:  #DC2626; color: white; padding:  12px 24px; 
+                   text-decoration: none; border-radius: 6px; display: inline-block;">
+                    Reset Password
+                </a>
+                <p style="color: #DC2626; font-weight: 600; font-size: 14px; margin-top: 20px;">
+                    ⏱️ This link will expire in <strong>1 hour</strong>. 
+                </p>
+                <p style="color: #6B7280; font-size: 14px; margin-top: 20px;">
+                    If you didn't request this, please ignore this email.  Your password will remain unchanged.
+                </p>
+                <p style="color: #6B7280; font-size: 12px; margin-top: 32px; padding-top: 16px; border-top: 1px solid #E5E7EB;">
+                    Best regards,<br>The %s Team
+                </p>
             </body>
             </html>
-            """, email, resetUrl);
+            """, email, resetUrl, deploymentConfig.getCompanyName());
     }
 }
