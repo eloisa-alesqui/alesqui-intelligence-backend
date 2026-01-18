@@ -250,24 +250,46 @@ public class UserManagementService {
                         log.info("Creating inactive user (pending activation): {}", username);
 
                         // Send email first, only save user if email succeeds
-                        String createdByAdmin = null;
-                        try {
-                            User currentUser = userService.getCurrentUser().block();
-                            if (currentUser != null) {
-                                createdByAdmin = currentUser.getUsername();
-                            }
-                        } catch (Exception e) {
-                            log.debug("No authenticated user creating this account (likely trial registration)");
-                        }
-                        String htmlContent = emailTemplateService.buildActivationEmail(username,
-                                token, rolesStr, createdByAdmin);
-                        return emailService.sendHtmlEmail(username,
-                                "Activate Your Account - Alesqui Intelligence",
-                                htmlContent)
-                                .then(userRepository.save(newUser))
-                                .doOnError(e -> log.error(
-                                        "Failed to send activation email for user {}, not saving user",
-                                        username, e));
+                        // Get current user reactively for createdByAdmin field
+                        return userService.getCurrentUser()
+                                .map(User::getUsername)
+                                .flatMap(createdByAdmin -> {
+                                    // Authenticated user exists
+                                    String htmlContent = emailTemplateService.buildActivationEmail(username,
+                                            token, rolesStr, createdByAdmin);
+                                    return emailService.sendHtmlEmail(username,
+                                            "Activate Your Account - Alesqui Intelligence",
+                                            htmlContent)
+                                            .then(userRepository.save(newUser))
+                                            .doOnError(e -> log.error(
+                                                    "Failed to send activation email for user {}, not saving user",
+                                                    username, e));
+                                })
+                                .switchIfEmpty(Mono.defer(() -> {
+                                    // No authenticated user (trial registration)
+                                    String htmlContent = emailTemplateService.buildActivationEmail(username,
+                                            token, rolesStr, null);
+                                    return emailService.sendHtmlEmail(username,
+                                            "Activate Your Account - Alesqui Intelligence",
+                                            htmlContent)
+                                            .then(userRepository.save(newUser))
+                                            .doOnError(e -> log.error(
+                                                    "Failed to send activation email for user {}, not saving user",
+                                                    username, e));
+                                }))
+                                .onErrorResume(e -> {
+                                    // Handle any security context errors
+                                    log.debug("No authenticated user creating this account (likely trial registration)");
+                                    String htmlContent = emailTemplateService.buildActivationEmail(username,
+                                            token, rolesStr, null);
+                                    return emailService.sendHtmlEmail(username,
+                                            "Activate Your Account - Alesqui Intelligence",
+                                            htmlContent)
+                                            .then(userRepository.save(newUser))
+                                            .doOnError(err -> log.error(
+                                                    "Failed to send activation email for user {}, not saving user",
+                                                    username, err));
+                                });
                     }
                 }));
     }
