@@ -3,8 +3,9 @@ package es.alesqui.intelligence.dto.admin;
 import java.util.Set;
 
 import es.alesqui.intelligence.model.core.enums.Role;
+import es.alesqui.intelligence.validation.PasswordValidator;
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 /**
@@ -40,7 +41,8 @@ public class UpdateUserRequest {
      * New password for the user.
      * Must meet minimum security requirements (will be BCrypt hashed).
      */
-    @Size(min = 8, message = "Password must be at least 8 characters long")
+    @Pattern(regexp = PasswordValidator.PASSWORD_PATTERN, 
+        message = PasswordValidator.PASSWORD_REQUIREMENTS_MESSAGE)
     private String password;
     
     /**

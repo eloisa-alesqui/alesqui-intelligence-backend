@@ -3,9 +3,11 @@ package es.alesqui.intelligence.dto.admin;
 import java.util.Set;
 
 import es.alesqui.intelligence.model.core.enums.Role;
+import es.alesqui.intelligence.validation.PasswordValidator;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -17,7 +19,7 @@ import lombok.Data;
  * 
  * Business Rules:
  * - Username must be a valid email format and unique
- * - If password provided: must be 8+ characters and user is immediately active
+ * - If password provided: must meet complexity requirements and user is immediately active
  * - If password omitted: activation email sent, user must set password via link
  * - At least one role must be assigned
  * 
@@ -50,7 +52,8 @@ public class CreateUserRequest {
      * If provided: must be at least 8 characters, user is immediately active.
      * If omitted: activation email sent, user sets password via secure link.
      */
-    @Size(min = 8, message = "Password must be at least 8 characters long")
+    @Pattern(regexp = PasswordValidator.PASSWORD_PATTERN, 
+        message = PasswordValidator.PASSWORD_REQUIREMENTS_MESSAGE)
     private String password;
     
     /**

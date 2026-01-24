@@ -1,7 +1,8 @@
 package es.alesqui.intelligence.dto.security;
 
+import es.alesqui.intelligence.validation.PasswordValidator;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 /**
@@ -22,6 +23,7 @@ public class ActivateAccountRequest {
      * Must meet security requirements: min 8 characters, uppercase, lowercase, number, special char.
      */
     @NotBlank(message = "Password is required")
-    @Size(min = 8, message = "Password must be at least 8 characters long")
+    @Pattern(regexp = PasswordValidator.PASSWORD_PATTERN, 
+         message = PasswordValidator.PASSWORD_REQUIREMENTS_MESSAGE)
     private String password;
 }
