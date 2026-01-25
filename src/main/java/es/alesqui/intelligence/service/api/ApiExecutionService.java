@@ -132,14 +132,18 @@ public class ApiExecutionService {
 
                                     Mono<String> responseMono;
                                     if (request.getParameters() != null && !isQueryParamMethod(request.getHttpMethod())) {
-                                        responseMono = requestSpec.bodyValue(request.getParameters()).retrieve().bodyToMono(String.class);
+                                        responseMono = requestSpec.bodyValue(request.getParameters())
+                                                .retrieve()
+                                                .bodyToMono(String.class)
+                                                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()));
                                     } else {
-                                        responseMono = requestSpec.retrieve().bodyToMono(String.class);
+                                        responseMono = requestSpec.retrieve()
+                                                .bodyToMono(String.class)
+                                                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()));
                                     }
                                     
-                                    // 8. Execute with timeout and retries.
+                                    // 8. Execute with retries.
                                     return responseMono
-                                            .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                                             .retryWhen(Retry.backoff(config.getMaxRetries(), Duration.ofMillis(500))
                                                     .filter(this::isRetryableException))
                                             .map(responseBody -> buildSuccessResponse(responseBody, request, startTime, loggingEnabled))
