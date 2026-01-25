@@ -16,6 +16,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
+import es.alesqui.intelligence.config.properties.CorsProperties;
 import es.alesqui.intelligence.security.JwtAuthenticationWebFilter;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
@@ -34,6 +35,7 @@ import reactor.core.publisher.Mono;
 public class SecurityConfig {
 
     private final JwtAuthenticationWebFilter jwtAuthFilter;
+    private final CorsProperties corsProperties;
 
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
@@ -95,25 +97,29 @@ public class SecurityConfig {
 
     /**
      * CORS Configuration Source
+     * 
+     * Reads configuration from CorsProperties which is populated from application.properties
+     * and .env file. Users only need to set FRONTEND_URL in .env for their deployment.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allowed origins patterns
-        configuration.setAllowedOriginPatterns(List.of("http://localhost:*", "https://localhost:*",
-                "https://*.alesqui.es", "https://*.alesqui.com", "https://*.vercel.app"));
+        // Allowed origins from properties (includes FRONTEND_URL from .env)
+        configuration.setAllowedOrigins(corsProperties.getAllowedOrigins());
 
         // Allowed methods
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(corsProperties.getAllowedMethods());
 
         // Allowed headers
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin",
-                "Access-Control-Request-Method", "Access-Control-Request-Headers", "X-Request-ID", "X-Correlation-ID"));
+        configuration.setAllowedHeaders(corsProperties.getAllowedHeaders());
 
         // Allow credentials
-        configuration.setAllowCredentials(true);
+        configuration.setAllowCredentials(corsProperties.getAllowCredentials());
+        
+        // Max age
+        configuration.setMaxAge(corsProperties.getMaxAge());
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
