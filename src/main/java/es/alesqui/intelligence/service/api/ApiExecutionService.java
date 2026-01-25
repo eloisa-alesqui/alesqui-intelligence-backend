@@ -67,6 +67,13 @@ public class ApiExecutionService {
         // 1. Start the reactive chain by getting the configuration.
         return apiConfigurationService.getConfiguration(request.getApiName())
                 .flatMap(config -> {
+                    // Security check: Enforce read-only mode at execution level
+                    if (config.isReadOnly() && !"GET".equalsIgnoreCase(request.getHttpMethod())) {
+                        return Mono.error(new IllegalArgumentException(
+                                "API '" + request.getApiName() + "' is in read-only mode. Only GET requests are allowed."
+                        ));
+                    }
+
                     boolean loggingEnabled = config.isEnableLogging();
                     if (loggingEnabled) {
                         log.info("Executing {} {} for API: {} (timeout: {}s, retries: {})",
