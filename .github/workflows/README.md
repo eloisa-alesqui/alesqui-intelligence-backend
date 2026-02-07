@@ -31,7 +31,7 @@ After this PR is merged, the repository owner needs to complete the following se
 1. Make a small change (e.g., update README.md)
 2. Commit and push to the `main` branch
 3. Go to the "Actions" tab in GitHub to see the workflow running
-4. After ~5-10 minutes, check Docker Hub for the new image at: https://hub.docker.com/r/alesqui-intelligence/backend
+4. After ~5-10 minutes, check Docker Hub for the new image at: https://hub.docker.com/r/alesquiintelligence/backend
 
 ### How It Works
 
@@ -64,6 +64,6 @@ The workflow generates the following tags:
 If the workflow fails:
 
 1. Check that the `DOCKERHUB_TOKEN` secret is properly configured
-2. Verify that the Docker Hub repository exists: `alesqui-intelligence/backend`
+2. Verify that the Docker Hub repository exists: `alesquiintelligence/backend`
 3. Ensure the Docker Hub account has permissions to push to the repository
 4. Review the workflow logs in the "Actions" tab for specific error messages
