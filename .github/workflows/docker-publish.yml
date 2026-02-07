@@ -9,8 +9,8 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_USERNAME: alesqui-intelligence
-  IMAGE_NAME: alesqui-intelligence/backend
+  DOCKER_USERNAME: alesquiintelligence
+  IMAGE_NAME: alesquiintelligence/backend
 
 jobs:
   build-and-push:
