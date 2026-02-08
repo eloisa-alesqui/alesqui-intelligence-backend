@@ -20,8 +20,20 @@ public class InitialAdminProperties {
     /**
      * Email address for the initial admin user.
      * Default: admin@company.com
+     * Must be a valid email format.
      */
     private String email = "admin@company.com";
+
+    /**
+     * Get email with guaranteed non-null value.
+     * @return email address, never null or empty
+     */
+    public String getEmail() {
+        if (email == null || email.trim().isEmpty()) {
+            return "admin@company.com";
+        }
+        return email;
+    }
     
     /**
      * Password for the initial admin user.

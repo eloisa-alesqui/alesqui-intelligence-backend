@@ -85,7 +85,24 @@ public class InitialAdminSetupService {
      * Creates the initial admin user with configured or generated credentials.
      */
     private Mono<Void> createInitialAdmin() {
-        String email = initialAdminProperties.getEmail();
+        String emailRaw = initialAdminProperties.getEmail();
+        
+        // Validate email is configured
+        if (emailRaw == null || emailRaw.trim().isEmpty()) {
+            log.error("[InitialAdmin] ========================================");
+            log.error("[InitialAdmin] FAILED TO CREATE INITIAL ADMIN USER");
+            log.error("[InitialAdmin] ========================================");
+            log.error("[InitialAdmin] Initial admin email is not configured!");
+            log.error("[InitialAdmin] Please set INITIAL_ADMIN_EMAIL environment variable");
+            log.error("[InitialAdmin] Example: INITIAL_ADMIN_EMAIL=admin@company.com");
+            log.error("[InitialAdmin] Using default: admin@company.com");
+            log.error("[InitialAdmin] ========================================");
+            emailRaw = "admin@company.com";  // Fallback to default
+        }
+        
+        final String email = emailRaw.trim().toLowerCase();
+        log.debug("[InitialAdmin] Creating admin user with email: {}", email);
+        
         String password = initialAdminProperties.getPassword();
         
         // Generate password if not provided
