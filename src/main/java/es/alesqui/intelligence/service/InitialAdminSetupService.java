@@ -100,7 +100,7 @@ public class InitialAdminSetupService {
         CreateUserRequest request = new CreateUserRequest();
         request.setUsername(email);
         request.setPassword(password);
-        request.setRoles(Set.of(Role.ROLE_SUPERADMIN, Role.ROLE_IT));
+        request.setRoles(Set.of(Role.ROLE_SUPERADMIN));
         
         final String finalPassword = password;
         final boolean wasGenerated = passwordGenerated;
