@@ -60,26 +60,23 @@ public class AuthenticationController {
      * If the credentials are valid, it generates and returns a JWT access token
      * and a refresh token.
      *
-     * @param authRequest A Mono containing the authentication request with user credentials.
+     * @param authRequest The authentication request with user credentials.
      * @param httpRequest the HTTP request for audit logging
      * @return A Mono containing the authentication response with JWTs.
      * Returns a Mono.error with 401 Unauthorized if authentication fails.
      */
     @PostMapping("/login")
-    public Mono<AuthResponse> login(@Valid @RequestBody Mono<AuthRequest> authRequest,
+    public Mono<AuthResponse> login(@Valid @RequestBody AuthRequest authRequest,
                                      ServerHttpRequest httpRequest) {
-        return authRequest
-                .flatMap(request -> {
-                    log.debug("[Auth] Attempting login for '{}'", request.getUsername());
-                    Authentication authenticationToken = new UsernamePasswordAuthenticationToken(
-                            request.getUsername(),
-                            request.getPassword()
-                    );
-                    // The authenticationManager will use our ReactiveUserDetailsService and PasswordEncoder
-                    // to validate the credentials.
-                    return authenticationManager.authenticate(authenticationToken)
-                            .zipWith(Mono.just(request.getUsername()));
-                })
+        log.debug("[Auth] Attempting login for '{}'", authRequest.getUsername());
+        Authentication authenticationToken = new UsernamePasswordAuthenticationToken(
+                authRequest.getUsername(),
+                authRequest.getPassword()
+        );
+        // The authenticationManager will use our ReactiveUserDetailsService and PasswordEncoder
+        // to validate the credentials.
+        return authenticationManager.authenticate(authenticationToken)
+                .zipWith(Mono.just(authRequest.getUsername()))
                 .doOnSuccess(tuple -> log.debug("[Auth] Authentication success for '{}')", tuple.getT1().getName()))
                 .flatMap(tuple -> {
                     Authentication authentication = tuple.getT1();
@@ -106,16 +103,14 @@ public class AuthenticationController {
                 .onErrorResume(e -> {
                     log.debug("[Auth] Authentication failed: {} - {}", e.getClass().getSimpleName(), e.getMessage());
                     // Extract username from the error context if possible
-                    return authRequest.flatMap(request -> 
-                        auditService.logFailureWithUser(
-                                AuditAction.AUTH_LOGIN,
-                                EntityType.USER,
-                                "unknown",
-                                request.getUsername(),
-                                request.getUsername(),
-                                "Invalid credentials: " + e.getMessage(),
-                                httpRequest
-                        )
+                    return auditService.logFailureWithUser(
+                            AuditAction.AUTH_LOGIN,
+                            EntityType.USER,
+                            "unknown",
+                            authRequest.getUsername(),
+                            authRequest.getUsername(),
+                            "Invalid credentials: " + e.getMessage(),
+                            httpRequest
                     ).then(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials")));
                 });
     }
