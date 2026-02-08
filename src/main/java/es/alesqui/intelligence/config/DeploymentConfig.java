@@ -16,8 +16,9 @@ public class DeploymentConfig {
     
     /**
      * Deployment mode: TRIAL or CORPORATE
+     * Default: CORPORATE (for self-hosted installations)
      */
-    private DeploymentMode mode = DeploymentMode.TRIAL;
+    private DeploymentMode mode = DeploymentMode.CORPORATE;
     
     /**
      * Company name for corporate deployments. 
