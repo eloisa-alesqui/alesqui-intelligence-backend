@@ -87,17 +87,17 @@ public class InitialAdminSetupService {
     private Mono<Void> createInitialAdmin() {
         String emailRaw = initialAdminProperties.getEmail();
         
-        // Validate email is configured
-        if (emailRaw == null || emailRaw.trim().isEmpty()) {
-            log.error("[InitialAdmin] ========================================");
-            log.error("[InitialAdmin] FAILED TO CREATE INITIAL ADMIN USER");
-            log.error("[InitialAdmin] ========================================");
-            log.error("[InitialAdmin] Initial admin email is not configured!");
-            log.error("[InitialAdmin] Please set INITIAL_ADMIN_EMAIL environment variable");
-            log.error("[InitialAdmin] Example: INITIAL_ADMIN_EMAIL=admin@company.com");
-            log.error("[InitialAdmin] Using default: admin@company.com");
-            log.error("[InitialAdmin] ========================================");
-            emailRaw = "admin@company.com";  // Fallback to default
+        // Log warning if using default email (likely not configured)
+        // Note: getEmail() already provides a fallback if null/empty
+        if (emailRaw.equals("admin@company.com")) {
+            log.warn("[InitialAdmin] ========================================");
+            log.warn("[InitialAdmin] USING DEFAULT ADMIN EMAIL");
+            log.warn("[InitialAdmin] ========================================");
+            log.warn("[InitialAdmin] Initial admin email may not be configured!");
+            log.warn("[InitialAdmin] To customize, set INITIAL_ADMIN_EMAIL environment variable");
+            log.warn("[InitialAdmin] Example: INITIAL_ADMIN_EMAIL=admin@mycompany.com");
+            log.warn("[InitialAdmin] Currently using: admin@company.com");
+            log.warn("[InitialAdmin] ========================================");
         }
         
         final String email = emailRaw.trim().toLowerCase();
