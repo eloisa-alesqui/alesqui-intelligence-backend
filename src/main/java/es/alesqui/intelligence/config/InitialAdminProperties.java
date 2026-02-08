@@ -28,4 +28,10 @@ public class InitialAdminProperties {
      * If empty or null, a secure random password will be generated.
      */
     private String password;
+    
+    /**
+     * Application URL to display in the initial admin setup logs.
+     * Default: http://localhost
+     */
+    private String appUrl = "http://localhost";
 }

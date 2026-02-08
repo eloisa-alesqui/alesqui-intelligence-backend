@@ -60,19 +60,25 @@ public class InitialAdminSetupService {
         
         log.info("[InitialAdmin] Checking if initial admin user needs to be created...");
         
-        // Check if any users exist
-        userRepository.count()
-            .flatMap(count -> {
-                if (count > 0) {
-                    log.info("[InitialAdmin] Users already exist (count: {}), skipping initial admin creation", count);
-                    return Mono.empty();
-                }
-                
-                log.info("[InitialAdmin] No users found in database, creating initial admin user");
-                return createInitialAdmin();
-            })
-            .doOnError(error -> log.error("[InitialAdmin] Error during initial admin setup", error))
-            .subscribe();
+        // Check if any users exist and create admin if needed
+        // Block to ensure admin creation completes before application fully starts
+        try {
+            userRepository.count()
+                .flatMap(count -> {
+                    if (count > 0) {
+                        log.info("[InitialAdmin] Users already exist (count: {}), skipping initial admin creation", count);
+                        return Mono.empty();
+                    }
+                    
+                    log.info("[InitialAdmin] No users found in database, creating initial admin user");
+                    return createInitialAdmin();
+                })
+                .doOnError(error -> log.error("[InitialAdmin] Error during initial admin setup", error))
+                .block(java.time.Duration.ofSeconds(30));  // Block with timeout to prevent indefinite hanging
+        } catch (Exception e) {
+            log.error("[InitialAdmin] Failed to complete initial admin setup within timeout period", e);
+            log.error("[InitialAdmin] Application will start without initial admin user");
+        }
     }
     
     /**
@@ -100,12 +106,15 @@ public class InitialAdminSetupService {
         final boolean wasGenerated = passwordGenerated;
         
         // Create user (without HTTP request context since this is startup)
-        // Pass null for trial workspace callback since we don't need trial workspace
-        return userManagementService.createUser(request, (User user) -> Mono.empty())
+        // Pass callback that ignores the user parameter since we don't need trial workspace
+        return userManagementService.createUser(request, _ignoredUser -> Mono.empty())
             .doOnSuccess(user -> {
                 log.info("[InitialAdmin] ========================================");
                 log.info("[InitialAdmin] INITIAL ADMIN USER CREATED SUCCESSFULLY");
                 log.info("[InitialAdmin] ========================================");
+                log.info("[InitialAdmin] ");
+                log.warn("[InitialAdmin] ⚠️  SECURITY NOTICE: Credentials are displayed below for initial setup ONLY");
+                log.warn("[InitialAdmin] ⚠️  These logs may be persisted - ensure they are secured appropriately");
                 log.info("[InitialAdmin] ");
                 log.info("[InitialAdmin] Login Credentials:");
                 log.info("[InitialAdmin]   Email:    {}", email);
@@ -116,7 +125,7 @@ public class InitialAdminSetupService {
                 }
                 log.info("[InitialAdmin] 🔒 IMPORTANT: Change this password after first login!");
                 log.info("[InitialAdmin] ");
-                log.info("[InitialAdmin] Access the application at: http://localhost");
+                log.info("[InitialAdmin] Access the application at: {}", initialAdminProperties.getAppUrl());
                 log.info("[InitialAdmin] ========================================");
             })
             .doOnError(error -> {
