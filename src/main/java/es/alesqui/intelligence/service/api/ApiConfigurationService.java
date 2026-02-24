@@ -126,16 +126,6 @@ public class ApiConfigurationService {
 	}
 
 	/**
-	 * Reactively gets the configured maximum number of retries for an API.
-	 *
-	 * @param apiName The unique name of the API.
-	 * @return A Mono emitting the max number of retries.
-	 */
-	public Mono<Integer> getMaxRetries(String apiName) {
-		return getConfiguration(apiName).map(ApiConfiguration::getMaxRetries);
-	}
-
-	/**
 	 * Reactively checks if logging is enabled for the API.
 	 *
 	 * @param apiName The unique name of the API.
