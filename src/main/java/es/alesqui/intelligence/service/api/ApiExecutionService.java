@@ -212,6 +212,10 @@ public class ApiExecutionService {
             // Retry on 5xx server errors, 408 Request Timeout, or 429 Too Many Requests.
             return statusCode >= 500 || statusCode == 408 || statusCode == 429;
         }
+        // Retry on client-side timeouts (thrown by the .timeout() operator, distinct from HTTP 408).
+        if (throwable instanceof java.util.concurrent.TimeoutException) {
+            return true;
+        }
         // Retry on network-level issues.
         return throwable instanceof java.io.IOException;
     }
