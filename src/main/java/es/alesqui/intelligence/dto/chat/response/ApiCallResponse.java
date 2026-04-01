@@ -1,0 +1,203 @@
+package es.alesqui.intelligence.dto.chat.response;
+
+import lombok.Builder;
+import lombok.Data;
+import java.time.Instant;
+import java.util.Map;
+import java.util.HashMap;
+
+/**
+ * Response DTO for API call operations within the ReAct process. Contains the
+ * API response data and execution metadata.
+ */
+@Data
+@Builder
+public class ApiCallResponse {
+
+	/**
+	 * Flag indicating if the API call was successful.
+	 */
+	@Builder.Default
+	private boolean success = false;
+
+	/**
+	 * Response data returned by the API call. Can be JSON object, string, or other
+	 * data types.
+	 */
+	private Object responseData;
+
+	/**
+	 * Error message if the API call failed. Null or empty if the call was
+	 * successful.
+	 */
+	private String errorMessage;
+
+	/**
+	 * HTTP status code returned by the API.
+	 */
+	private int statusCode;
+
+	/**
+	 * Response headers returned by the API.
+	 */
+	@Builder.Default
+	private Map<String, String> responseHeaders = new HashMap<>();
+
+	/**
+	 * Time taken to execute the API call in milliseconds.
+	 */
+	private Long executionTimeMs;
+
+	/**
+	 * Timestamp when the API call was made.
+	 */
+	@Builder.Default
+	private Instant timestamp = Instant.now();
+
+	/**
+	 * Name of the API that was called.
+	 */
+	private String apiName;
+
+	/**
+	 * Endpoint path that was accessed.
+	 */
+	private String endpoint;
+
+	/**
+	 * HTTP method used for the call.
+	 */
+	private String httpMethod;
+
+
+
+	/**
+	 * Creates a successful API call response without a conversation identifier.
+	 * Keeps the payload minimal (no raw/parsed duplication).
+	 *
+	 * @param responseData data returned by the API
+	 * @param statusCode   HTTP status code
+	 * @return ApiCallResponse for successful call
+	 */
+	public static ApiCallResponse success(Object responseData, int statusCode) {
+		return ApiCallResponse.builder().success(true).responseData(responseData).statusCode(statusCode)
+				.timestamp(Instant.now()).build();
+	}
+
+	// Removed legacy failure overload with conversationId to keep payload minimal.
+	
+	/**
+	 * Creates a failure response with a structured error object in the response
+	 * body. This is used to provide detailed, machine-readable errors to the AI.
+	 *
+	 * @param errorBody      The structured error object (e.g., StructuredApiError).
+	 * @param statusCode     The HTTP status code representing the error.
+	 * @return ApiCallResponse for a structured failure.
+	 */
+	public static ApiCallResponse failure(Object errorBody, int statusCode) {
+		return ApiCallResponse.builder().success(false).responseData(errorBody).statusCode(statusCode)
+				.timestamp(Instant.now()).build();
+	}
+	
+	/**
+	 * Creates a failed API call response.
+	 *
+	 * @param errorMessage   description of the error
+	 * @param statusCode     HTTP status code
+	 * @return ApiCallResponse for failed call
+	 */
+	public static ApiCallResponse failure(String errorMessage, int statusCode) {
+		return ApiCallResponse.builder().success(false).errorMessage(errorMessage).statusCode(statusCode)
+				.timestamp(Instant.now()).build();
+	}
+
+	/**
+	 * Creates an API call response for connection timeout.
+	 *
+	 * @param conversationId unique conversation identifier
+	 * @return ApiCallResponse for timeout error
+	 */
+
+
+	/**
+	 * Sets the API call details.
+	 *
+	 * @param apiName    name of the API
+	 * @param endpoint   endpoint path
+	 * @param httpMethod HTTP method used
+	 * @return this response for method chaining
+	 */
+	public ApiCallResponse withApiDetails(String apiName, String endpoint, String httpMethod) {
+		this.apiName = apiName;
+		this.endpoint = endpoint;
+		this.httpMethod = httpMethod;
+		return this;
+	}
+	
+	/**
+	 * Sets the API call details.
+	 *
+	 * @param apiName    name of the API
+	 * @param endpoint   endpoint path
+	 * @return this response for method chaining
+	 */
+	public ApiCallResponse withApiDetails(String apiName, String endpoint) {
+		this.apiName = apiName;
+		this.endpoint = endpoint;
+		return this;
+	}
+
+	/**
+	 * Sets the execution time for the API call.
+	 *
+	 * @param timeMs execution time in milliseconds
+	 * @return this response for method chaining
+	 */
+	public ApiCallResponse withExecutionTime(long timeMs) {
+		this.executionTimeMs = timeMs;
+		return this;
+	}
+
+	/**
+	 * Adds a response header to the collection.
+	 *
+	 * @param key   header name
+	 * @param value header value
+	 * @return this response for method chaining
+	 */
+	public ApiCallResponse addResponseHeader(String key, String value) {
+		this.responseHeaders.put(key, value);
+		return this;
+	}
+
+	/**
+	 * Checks if the API call was successful based on status code.
+	 *
+	 * @return true if status code indicates success (200-299)
+	 */
+	public boolean isHttpSuccess() {
+		return statusCode >= 200 && statusCode < 300;
+	}
+
+	// Removed string conversion and presence helpers to keep the DTO minimal.
+	
+	// Removed withRawResponse to keep responses minimal and avoid duplicating payloads.
+
+	/**
+	 * Creates a failed API call response with timeout.
+	 *
+	 * @param conversationId unique conversation identifier
+	 * @param timeoutSeconds timeout duration in seconds
+	 * @return ApiCallResponse for timeout error
+	 */
+
+
+	/**
+	 * Creates a failed API call response for connection errors.
+	 *
+	 * @param errorMessage   description of the connection error
+	 * @param conversationId unique conversation identifier
+	 * @return ApiCallResponse for connection error
+	 */
+
+}

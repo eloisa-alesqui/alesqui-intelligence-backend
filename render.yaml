@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: alesqui-intelligence-backend
+    env: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: default
+      - key: JAVA_OPTS
+        value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+      # Secrets: set these in Render dashboard or via Blueprint
+      - key: MONGODB_URI
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false

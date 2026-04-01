@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activate Your Account - Alesqui Intelligence</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6; 
+            color: #1F2937;
+            margin: 0;
+            padding: 0;
+            background-color: #F3F4F6;
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 40px auto; 
+            background-color: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .header { 
+            background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+            color: white; 
+            padding: 40px 30px; 
+            text-align: center; 
+            position: relative;
+        }
+        .logo {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 20px;
+            background: white;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .logo svg {
+            width: 40px;
+            height: 40px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        .header p {
+            margin: 8px 0 0 0;
+            font-size: 16px;
+            opacity: 0.95;
+            font-weight: 400;
+        }
+        .content { 
+            padding: 40px 30px;
+        }
+        .content p {
+            margin: 0 0 16px 0;
+            font-size: 15px;
+            color: #374151;
+        }
+        .greeting {
+            font-size: 18px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 20px;
+        }
+        .button { 
+            display: inline-block; 
+            padding: 16px 40px; 
+            background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+            color: white !important; 
+            text-decoration: none; 
+            border-radius: 8px; 
+            margin: 28px 0;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+        }
+        .button:hover {
+            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.4);
+            transform: translateY(-2px);
+        }
+        .info-box { 
+            background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
+            padding: 24px; 
+            border-left: 4px solid #2563EB; 
+            margin: 28px 0;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        .info-box .info-row {
+            display: flex;
+            align-items: center;
+            margin: 12px 0;
+            font-size: 15px;
+        }
+        .info-box .info-row:first-child {
+            margin-top: 0;
+        }
+        .info-box .info-row:last-child {
+            margin-bottom: 0;
+        }
+        .info-box .icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        .info-box strong {
+            color: #1E40AF;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+        .info-box .value {
+            color: #1F2937;
+            font-weight: 500;
+        }
+        .warning-box {
+            background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+            border-left: 4px solid #F59E0B;
+            padding: 20px;
+            margin: 28px 0;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        .warning-box .warning-content {
+            display: flex;
+            align-items: flex-start;
+        }
+        .warning-box .warning-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+            flex-shrink: 0;
+            color: #D97706;
+        }
+        .warning-box strong {
+            color: #92400E;
+            font-weight: 600;
+        }
+        .warning-box p {
+            margin: 0;
+            color: #78350F;
+            font-size: 14px;
+        }
+        .link-box {
+            background-color: #F9FAFB;
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid #E5E7EB;
+            word-break: break-all;
+            font-size: 13px;
+            color: #6B7280;
+            margin: 20px 0;
+        }
+        .link-box a {
+            color: #2563EB;
+            text-decoration: none;
+            word-break: break-all;
+        }
+        .link-label {
+            font-size: 13px;
+            color: #6B7280;
+            margin: 0 0 12px 0;
+            font-weight: 500;
+        }
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #E5E7EB, transparent);
+            margin: 32px 0;
+        }
+        .footer { 
+            text-align: center; 
+            color: #6B7280; 
+            font-size: 13px; 
+            padding: 32px 30px;
+            background: linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%);
+            border-top: 1px solid #E5E7EB;
+        }
+        .footer-brand {
+            font-weight: 600;
+            color: #2563EB;
+            font-size: 15px;
+            margin-bottom: 8px;
+        }
+        .footer p {
+            margin: 8px 0;
+        }
+        .footer-note {
+            color: #9CA3AF;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        @media only screen and (max-width: 600px) {
+            .container {
+                margin: 0;
+                border-radius: 0;
+            }
+            .header {
+                padding: 32px 20px;
+            }
+            .header h1 {
+                font-size: 24px;
+            }
+            .content {
+                padding: 32px 20px;
+            }
+            .button {
+                display: block;
+                text-align: center;
+                padding: 14px 24px;
+            }
+            .info-box, .warning-box {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+                <img src="https://assets.alesqui.com/email/logo.png" 
+     			alt="Alesqui Intelligence Logo" 
+     			style="width: 60px; height: 60px; display: block;">
+            </div>
+            <h1>Welcome to Alesqui Intelligence! 🎉</h1>
+            <p>Your account is ready to activate</p>
+        </div>
+        
+        <div class="content">
+            <p class="greeting">Hello!</p>
+            
+            <p>{{context}}</p>
+            <p>We're excited to have you join the Alesqui Intelligence platform.</p>
+            
+            <div class="info-box">
+                <div class="info-row">
+                    <svg class="icon" fill="none" stroke="#2563EB" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                    </svg>
+                    <div>
+                        <strong>Email:</strong>
+                        <span class="value">{{email}}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <svg class="icon" fill="none" stroke="#2563EB" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                    <div>
+                        <strong>Role:</strong>
+                        <span class="value">{{role}}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <p>To get started, you need to activate your account and create a secure password. Click the button below to begin:</p>
+            
+            <div style="text-align: center;">
+                <a href="{{activationUrl}}" class="button">
+                    Activate My Account →
+                </a>
+            </div>
+            
+            <p class="link-label">Or copy and paste this link into your browser:</p>
+            
+            <div class="link-box">
+                <a href="{{activationUrl}}">{{activationUrl}}</a>
+            </div>
+            
+            <div class="warning-box">
+                <div class="warning-content">
+                    <svg class="warning-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    <div>
+                        <p><strong>⏰ Time-Sensitive:</strong> This activation link will expire in <strong>48 hours</strong>. Please activate your account as soon as possible.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+            
+            <p style="color: #6B7280; font-size: 14px;">If you did not request this account or believe this email was sent in error, please ignore it or contact our support team.</p>
+        </div>
+        
+        <div class="footer">
+            <p class="footer-brand">Alesqui Intelligence</p>
+            <p>Empowering your business with intelligent solutions</p>
+            <p style="margin-top: 16px;">&copy; 2026 Alesqui Intelligence. All rights reserved.</p>
+            <p class="footer-note">This is an automated message, please do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>

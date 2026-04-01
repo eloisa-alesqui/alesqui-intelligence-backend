@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- ================================================================= -->
+    <!-- 🔧 SPRING PROPERTIES                                              -->
+    <!-- These values are loaded from application.properties               -->
+    <!-- ================================================================= -->
+    
+    <springProperty scope="context" name="APP_NAME"
+        source="spring.application.name" defaultValue="alesqui-intelligence" />
+        
+    <springProperty scope="context" name="LOG_LEVEL"
+        source="logging.level.es.alesqui.intelligence" defaultValue="INFO" />
+        
+    <springProperty scope="context" name="LOG_PATH"
+        source="logging.file.path" defaultValue="logs" />
+        
+    <springProperty scope="context" name="LOG_FILE"
+        source="logging.file.name" defaultValue="${LOG_PATH}/${APP_NAME}.log" />
+
+
+    <!-- ================================================================= -->
+    <!-- 🖥️ CONSOLE APPENDER                                               -->
+    <!-- Outputs logs to the terminal/console                              -->
+    <!-- ================================================================= -->
+    <appender name="Console" class="ch.qos.logback.core.ConsoleAppender">
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <!-- Pattern includes ${APP_NAME} to identify the source application -->
+            <Pattern>
+                %d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) [%blue(${APP_NAME})] [%thread] %logger{36} - %msg%n
+            </Pattern>
+        </layout>
+    </appender>
+
+
+    <!-- ================================================================= -->
+    <!-- 📁 ROLLING FILE APPENDER                                          -->
+    <!-- Writes to a file and rotates it daily                             -->
+    <!-- ================================================================= -->
+    <appender name="RollingFile" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- Uses the dynamic LOG_FILE property -->
+        <file>${LOG_FILE}</file>
+        
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <Pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level [${APP_NAME}] [%thread] %logger{36} - %msg%n</Pattern>
+        </encoder>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- Archives are stored in a subdirectory using the APP_NAME -->
+            <fileNamePattern>${LOG_PATH}/archived/${APP_NAME}-%d{yyyy-MM-dd}.log</fileNamePattern>
+            
+            <!-- Keep logs for 30 days -->
+            <maxHistory>30</maxHistory>
+            
+            <!-- Limit total size of all archives to 3GB -->
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+
+    <!-- ================================================================= -->
+    <!-- ⚙️ LOGGER CONFIGURATION                                           -->
+    <!-- ================================================================= -->
+
+    <!-- Specific logger for your application package using the dynamic LOG_LEVEL -->
+    <logger name="es.alesqui.intelligence" level="${LOG_LEVEL}" additivity="false">
+        <appender-ref ref="Console" />
+        <appender-ref ref="RollingFile" />
+    </logger>
+
+    <!-- Root logger for all other libraries (Spring, Hibernate, etc.) -->
+    <root level="INFO">
+        <appender-ref ref="Console" />
+        <appender-ref ref="RollingFile" />
+    </root>
+
+</configuration>
