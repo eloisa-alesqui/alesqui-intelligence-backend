@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Alesqui Intelligence - Architecture</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            background: #0d1117;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 40px 20px;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+        h1 {
+            color: #e6edf3;
+            font-size: 28px;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+        .subtitle {
+            color: #8b949e;
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+        .tech-badges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+        .badge {
+            background: #161b22;
+            border: 1px solid #30363d;
+            color: #8b949e;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge.highlight {
+            border-color: #58a6ff;
+            color: #58a6ff;
+        }
+        .mermaid {
+            background: #0d1117;
+        }
+        .footer {
+            color: #484f58;
+            font-size: 11px;
+            margin-top: 24px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Alesqui Intelligence Backend</h1>
+    <p class="subtitle">Enterprise Self-Hosted AI API Assistant &mdash; Reactive Architecture</p>
+    <div class="tech-badges">
+        <span class="badge highlight">Java 21</span>
+        <span class="badge highlight">Spring Boot 3.5</span>
+        <span class="badge highlight">WebFlux</span>
+        <span class="badge highlight">Spring AI 1.0</span>
+        <span class="badge">MongoDB Reactive</span>
+        <span class="badge">Project Reactor</span>
+        <span class="badge">JWT / Spring Security</span>
+        <span class="badge">SSE Streaming</span>
+        <span class="badge">Docker</span>
+    </div>
+
+    <div class="mermaid">
+    %%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1f6feb', 'primaryTextColor': '#e6edf3', 'primaryBorderColor': '#388bfd', 'lineColor': '#484f58', 'secondaryColor': '#161b22', 'tertiaryColor': '#161b22', 'edgeLabelBackground': '#0d1117', 'clusterBkg': '#161b22', 'clusterBorder': '#30363d', 'titleColor': '#e6edf3', 'nodeTextColor': '#e6edf3' }}}%%
+    flowchart TB
+
+        subgraph CLIENT ["CLIENT"]
+            direction LR
+            FE["Frontend App<br/><small>React / Angular</small>"]
+        end
+
+        subgraph GATEWAY ["API LAYER &mdash; Spring WebFlux"]
+            direction TB
+            CORS["CORS Filter"]
+            JWT["JWT Auth WebFilter<br/><small>Stateless / Reactive</small>"]
+            SEC["Security Config<br/><small>RBAC: BUSINESS | IT | SUPERADMIN | TRIAL</small>"]
+
+            subgraph CONTROLLERS ["Controllers"]
+                direction LR
+                CC["ChatController<br/><small>SSE Stream + REST</small>"]
+                AC["AuthController<br/><small>Login / Refresh / Reset</small>"]
+                API_C["API Spec Controllers<br/><small>Swagger / Postman / Unified</small>"]
+                ADMIN["AdminController<br/><small>Users / Groups / Audit</small>"]
+            end
+        end
+
+        subgraph CORE ["CORE SERVICES"]
+            direction TB
+
+            subgraph CHAT_ENGINE ["Chat Engine &mdash; ReAct Pattern"]
+                direction TB
+                ORCH["ChatOrchestrationService<br/><small>Query routing + SSE sink</small>"]
+                AI["AIChatService<br/><small>Manual ReAct loop</small>"]
+                HALL["HallucinationCorrector<br/><small>Detects fake tool calls</small>"]
+                PROMPT["ChatPromptBuilder<br/><small>Role-aware prompts</small>"]
+                REASON["ReasoningStepCollector<br/><small>Captures thought + act steps</small>"]
+                TOOLPROC["ToolResponseProcessor<br/><small>Extracts charts, cleans data</small>"]
+            end
+
+            subgraph TOOLS ["AI Tools &mdash; Spring AI @Tool"]
+                direction LR
+                T1["ApiDiscoveryTools<br/><small>list_apis / list_endpoints<br/>inspect_endpoint</small>"]
+                T2["ApiInvocationTools<br/><small>call_api<br/>+ inspect-before-execute</small>"]
+                T3["DataTools<br/><small>filter / count<br/>aggregate</small>"]
+                T4["ChartTools<br/><small>bar / line / pie<br/>chart generation</small>"]
+                T5["ExportTools<br/><small>Excel / DOCX<br/>export</small>"]
+            end
+
+            subgraph SERVICES ["Domain Services"]
+                direction LR
+                UNIF["ApiUnificationService<br/><small>Swagger + Postman &rarr; Unified</small>"]
+                EXEC["ApiExecutionService<br/><small>HTTP calls + OAuth2</small>"]
+                CONV["ConversationService<br/><small>History + Memory</small>"]
+                ACCESS["GroupManagement<br/><small>Users &harr; Groups &harr; APIs</small>"]
+                AUDIT["AuditService<br/><small>Fire-and-forget logging</small>"]
+            end
+        end
+
+        subgraph SECURITY_LAYER ["SECURITY"]
+            direction LR
+            JWTSERV["JwtService<br/><small>Access + Refresh tokens</small>"]
+            RATE["RateLimitingService<br/><small>IP-based throttling</small>"]
+            TOKEN["TokenService<br/><small>Activation / Reset tokens</small>"]
+        end
+
+        subgraph DATA ["DATA LAYER &mdash; MongoDB Reactive"]
+            direction LR
+            DB[("MongoDB 7.0")]
+            USERS["users"]
+            APIS["unifiedApiDocs"]
+            CONVS["conversations"]
+            AUDITL["auditLogs<br/><small>TTL: 2 years</small>"]
+            GROUPS["groups /<br/>memberships /<br/>apiLinks"]
+        end
+
+        subgraph EXTERNAL ["EXTERNAL"]
+            direction LR
+            LLM["OpenAI API<br/><small>GPT-4o-mini</small>"]
+            EXTAPI["External APIs<br/><small>User-configured</small>"]
+            SMTP["SMTP Server<br/><small>Email notifications</small>"]
+        end
+
+        %% Connections
+        FE -->|"HTTPS + SSE"| CORS
+        CORS --> JWT
+        JWT --> SEC
+        SEC --> CONTROLLERS
+
+        CC --> ORCH
+        ORCH --> AI
+        AI --> HALL
+        AI --> PROMPT
+        AI --> REASON
+        AI --> TOOLPROC
+        AI -->|"ToolCallingManager"| TOOLS
+
+        T1 --> UNIF
+        T2 --> EXEC
+        T2 -->|"inspect-before-execute"| T1
+
+        ORCH --> CONV
+        API_C --> UNIF
+        ADMIN --> ACCESS
+        ADMIN --> AUDIT
+
+        AC --> JWTSERV
+        AC --> RATE
+
+        UNIF --> DB
+        CONV --> DB
+        ACCESS --> DB
+        AUDIT --> DB
+        DB --- USERS
+        DB --- APIS
+        DB --- CONVS
+        DB --- AUDITL
+        DB --- GROUPS
+
+        AI -->|"Reactive Stream"| LLM
+        EXEC -->|"WebClient"| EXTAPI
+        TOKEN --> SMTP
+
+        %% Styles
+        classDef clientStyle fill:#1a1e24,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+        classDef gatewayStyle fill:#1c2128,stroke:#388bfd,stroke-width:1px,color:#e6edf3
+        classDef coreStyle fill:#1c2128,stroke:#3fb950,stroke-width:1px,color:#e6edf3
+        classDef toolStyle fill:#1a1e24,stroke:#d29922,stroke-width:1px,color:#e6edf3
+        classDef dataStyle fill:#1a1e24,stroke:#f78166,stroke-width:1px,color:#e6edf3
+        classDef externalStyle fill:#1a1e24,stroke:#bc8cff,stroke-width:1px,color:#e6edf3
+        classDef secStyle fill:#1a1e24,stroke:#f85149,stroke-width:1px,color:#e6edf3
+
+        class FE clientStyle
+        class CORS,JWT,SEC,CC,AC,API_C,ADMIN gatewayStyle
+        class ORCH,AI,HALL,PROMPT,REASON,TOOLPROC coreStyle
+        class T1,T2,T3,T4,T5 toolStyle
+        class UNIF,EXEC,CONV,ACCESS,AUDIT coreStyle
+        class JWTSERV,RATE,TOKEN secStyle
+        class DB,USERS,APIS,CONVS,AUDITL,GROUPS dataStyle
+        class LLM,EXTAPI,SMTP externalStyle
+    </div>
+
+    <p class="footer">Alesqui Intelligence v1.0.0 &mdash; Java 21 / Spring Boot 3.5 / WebFlux / Spring AI / MongoDB Reactive</p>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            securityLevel: 'loose',
+            theme: 'dark',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                rankSpacing: 60,
+                nodeSpacing: 30
+            }
+        });
+    </script>
+</body>
+</html>
