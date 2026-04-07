@@ -594,6 +594,15 @@ public class UserAdminService {
      * @param userId the ID of the user
      * @return the user detail response with groups information
      */
+    /**
+     * Counts the total number of registered users in the system.
+     *
+     * @return a Mono emitting the total user count.
+     */
+    public Mono<Long> countUsers() {
+        return userRepository.count();
+    }
+
     public Mono<UserDetailResponse> getUserDetail(String userId) {
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.empty())

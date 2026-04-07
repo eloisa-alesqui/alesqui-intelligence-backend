@@ -7,6 +7,7 @@ import es.alesqui.intelligence.dto.conversation.ConversationExportDTO;
 import es.alesqui.intelligence.dto.conversation.ConversationExportEntryDTO;
 import es.alesqui.intelligence.dto.conversation.ConversationSummaryDTO;
 import es.alesqui.intelligence.dto.conversation.DiagnosticTicketDTO;
+import es.alesqui.intelligence.dto.conversation.LastConversationInfo;
 import es.alesqui.intelligence.model.conversation.ConversationRecord;
 import es.alesqui.intelligence.model.conversation.ConversationStatus;
 import es.alesqui.intelligence.repository.ConversationRecordRepository;
@@ -17,13 +18,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.commons.lang3.StringUtils;
-import org.bson.Document;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.mongodb.core.ReactiveMongoTemplate;
-import org.springframework.data.mongodb.core.aggregation.Aggregation;
-import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.stereotype.Service;
 
@@ -50,7 +46,6 @@ public class ConversationService {
     private final ConversationRecordRepository repository;
     private final GroupMembershipService groupMembershipService;
     private final UserService userService;
-    private final ReactiveMongoTemplate mongoTemplate;
 
     /**
      * Saves a complete user interaction (request and response) to the database.
@@ -123,23 +118,7 @@ public class ConversationService {
      * sorted with the most recently updated first.
      */
     public Flux<ConversationSummaryDTO> getHistoryForUser(String username) {
-        return mongoTemplate.aggregate(
-            Aggregation.newAggregation(
-                Aggregation.match(Criteria.where("username").is(username)),
-                Aggregation.sort(Sort.by(Sort.Direction.ASC, "timestamp")),
-                Aggregation.group("conversationId")
-                    .first("userPrompt").as("title")
-                    .max("timestamp").as("lastUpdated"),
-                Aggregation.sort(Sort.by(Sort.Direction.DESC, "lastUpdated"))
-            ),
-            "conversations",
-            Document.class
-        )
-        .map(doc -> new ConversationSummaryDTO(
-            doc.getString("_id"),
-            doc.getString("title"),
-            doc.getDate("lastUpdated").toInstant()
-        ));
+        return repository.findConversationSummariesByUsername(username);
     }
 
     /**
@@ -532,6 +511,81 @@ public class ConversationService {
             .userFeedbackComment(record.getUserFeedbackComment())
             .internalNotes(record.getInternalNotes())
             .build();
+    }
+
+    /**
+     * Counts the total number of interaction records saved for the given user,
+     * regardless of conversation or status. Each record represents a single
+     * user prompt and its corresponding response.
+     *
+     * @param username the authenticated username to count records for.
+     * @return a Mono emitting the total number of messages sent by the user.
+     */
+    public Mono<Long> countMessagesByUsername(String username) {
+        return repository.countByUsername(username);
+    }
+
+    /**
+     * Counts the number of interaction records for the given user that include
+     * a chart in the response. This reflects how many times the AI produced a
+     * data visualization for this user.
+     *
+     * @param username the authenticated username to count chart responses for.
+     * @return a Mono emitting the number of responses that contained a chart.
+     */
+    public Mono<Long> countChartsByUsername(String username) {
+        return repository.countByUsernameAndResponseChartIsNotNull(username);
+    }
+
+    /**
+     * Counts the number of distinct conversations started by the given user.
+     * Multiple interaction records sharing the same conversationId are counted
+     * as a single conversation.
+     *
+     * @param username the authenticated username to count conversations for.
+     * @return a Mono emitting the total number of distinct conversations.
+     */
+    public Mono<Long> countDistinctConversations(String username) {
+        return repository.countDistinctConversationsByUsername(username);
+    }
+
+    /**
+     * Counts the number of distinct conversations started by the given user on
+     * or after the specified point in time. Useful for computing activity windows
+     * such as conversations initiated in the last 7 or 30 days.
+     *
+     * @param username the authenticated username to count conversations for.
+     * @param since    the inclusive lower bound for the record timestamp.
+     * @return a Mono emitting the number of distinct conversations within the given window.
+     */
+    public Mono<Long> countDistinctConversationsSince(String username, Instant since) {
+        return repository.countDistinctConversationsByUsernameAndTimestampAfter(username, since);
+    }
+
+    /**
+     * Retrieves a summary of the most recently updated conversation for the given user,
+     * including its identifier, title, and last-updated timestamp.
+     * Emits an empty Mono when the user has no recorded conversations.
+     *
+     * @param username the authenticated username whose last conversation is requested.
+     * @return a Mono emitting a LastConversationInfo for the most recently active
+     *         conversation, or an empty Mono if none exists.
+     */
+    public Mono<LastConversationInfo> getLastConversation(String username) {
+        return repository.findLastConversationByUsername(username);
+    }
+
+    /**
+     * Counts the total number of open support tickets across all users.
+     * A ticket is considered open when its status is either REPORTED_BY_USER
+     * (flagged by the user for review) or ERROR_PROCESSING (failed automatically
+     * during AI processing). This count is intended for the IT Dashboard inbox widget.
+     *
+     * @return a Mono emitting the number of open tickets pending IT review.
+     */
+    public Mono<Long> countOpenTickets() {
+        return repository.countByStatusIn(
+            List.of(ConversationStatus.REPORTED_BY_USER, ConversationStatus.ERROR_PROCESSING));
     }
 
 }
