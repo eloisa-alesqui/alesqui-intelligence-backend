@@ -115,7 +115,7 @@ class DashboardServiceTest {
     // ---------------------------------------------------------------------------
 
     @Test
-    @DisplayName("ROLE_TRIAL — includes trial info, activity, and APIs; admin and support are null")
+    @DisplayName("ROLE_TRIAL — includes trial info, activity, APIs, and support; admin is null")
     void getSummary_trialUser_includesTrialInfoAndActivity() {
         Instant trialEnd = Instant.now().plus(15, ChronoUnit.DAYS);
         User user = buildUser(USER_ID, USERNAME, Instant.now().minus(5, ChronoUnit.DAYS), trialEnd, Role.ROLE_TRIAL);
@@ -123,6 +123,7 @@ class DashboardServiceTest {
         stubCommonMocks(user);
         when(trialRegistrationService.getDaysRemaining(user)).thenReturn(15L);
         when(trialRegistrationService.isTrialExpired(user)).thenReturn(false);
+        when(conversationService.countOpenTickets()).thenReturn(Mono.just(3L));
 
         StepVerifier.create(dashboardService.getSummary())
                 .assertNext(response -> {
@@ -139,7 +140,7 @@ class DashboardServiceTest {
                     assertThat(response.getApis().get(0).getId()).isEqualTo("api-1");
 
                     assertThat(response.getAdmin()).isNull();
-                    assertThat(response.getSupport()).isNull();
+                    assertThat(response.getSupport()).isNotNull();
                 })
                 .verifyComplete();
     }
@@ -178,6 +179,27 @@ class DashboardServiceTest {
 
                     assertThat(response.getAdmin()).isNull();
                     assertThat(response.getTrial()).isNull();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("ROLE_TRIAL — includes support section with openTickets; admin is null")
+    void getSummary_trialUser_includesSupportSection() {
+        Instant trialEnd = Instant.now().plus(10, ChronoUnit.DAYS);
+        User user = buildUser(USER_ID, USERNAME, Instant.now().minus(5, ChronoUnit.DAYS), trialEnd, Role.ROLE_TRIAL);
+
+        stubCommonMocks(user);
+        when(trialRegistrationService.getDaysRemaining(user)).thenReturn(10L);
+        when(trialRegistrationService.isTrialExpired(user)).thenReturn(false);
+        when(conversationService.countOpenTickets()).thenReturn(Mono.just(4L));
+
+        StepVerifier.create(dashboardService.getSummary())
+                .assertNext(response -> {
+                    assertThat(response.getSupport()).isNotNull();
+                    assertThat(response.getSupport().getOpenTickets()).isEqualTo(4L);
+
+                    assertThat(response.getAdmin()).isNull();
                 })
                 .verifyComplete();
     }
@@ -245,6 +267,7 @@ class DashboardServiceTest {
         stubCommonMocks(user);
         when(trialRegistrationService.getDaysRemaining(user)).thenReturn(0L);
         when(trialRegistrationService.isTrialExpired(user)).thenReturn(true);
+        when(conversationService.countOpenTickets()).thenReturn(Mono.just(0L));
 
         StepVerifier.create(dashboardService.getSummary())
                 .assertNext(response -> {

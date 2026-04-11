@@ -1,7 +1,8 @@
 package es.alesqui.intelligence.controller;
 
 import es.alesqui.intelligence.dto.conversation.ConversationDetailDTO;
-import es.alesqui.intelligence.dto.conversation.DiagnosticTicketDTO; 
+import es.alesqui.intelligence.dto.conversation.DiagnosticTicketDTO;
+import es.alesqui.intelligence.dto.conversation.TicketStatsDTO;
 import es.alesqui.intelligence.model.conversation.ConversationStatus;
 import es.alesqui.intelligence.service.conversation.ConversationService;
 import jakarta.validation.Valid;
@@ -123,5 +124,19 @@ public class DiagnosticsController {
         // Returns the Mono directly from the service
         return conversationService.addInternalNote(recordId, request.note());
     }
-       
+
+    /**
+     * Returns ticket counts grouped by status for the last 30 days.
+     *
+     * Provides a quick overview of ticket distribution (reported, errors,
+     * under review, resolved) for the IT Dashboard without exposing
+     * individual ticket details.
+     *
+     * @return a Mono emitting a TicketStatsDTO with per-status counts.
+     */
+    @GetMapping("/tickets/stats")
+    public Mono<TicketStatsDTO> getTicketStats() {
+        return conversationService.getTicketStats();
+    }
+
 }

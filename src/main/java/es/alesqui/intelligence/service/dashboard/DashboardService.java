@@ -85,7 +85,8 @@ public class DashboardService {
                                 }
 
                                 boolean isAdmin = roles != null && roles.contains(Role.ROLE_SUPERADMIN);
-                                boolean isSupport = isAdmin || (roles != null && roles.contains(Role.ROLE_IT));
+                                boolean isSupport = isAdmin || (roles != null &&
+                                        (roles.contains(Role.ROLE_IT) || roles.contains(Role.ROLE_TRIAL)));
 
                                 if (isAdmin && isSupport) {
                                     return Mono.zip(buildAdminInfo(), buildSupportInfo())

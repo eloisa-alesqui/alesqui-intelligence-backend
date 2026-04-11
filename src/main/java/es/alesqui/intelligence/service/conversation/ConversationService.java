@@ -8,6 +8,7 @@ import es.alesqui.intelligence.dto.conversation.ConversationExportEntryDTO;
 import es.alesqui.intelligence.dto.conversation.ConversationSummaryDTO;
 import es.alesqui.intelligence.dto.conversation.DiagnosticTicketDTO;
 import es.alesqui.intelligence.dto.conversation.LastConversationInfo;
+import es.alesqui.intelligence.dto.conversation.TicketStatsDTO;
 import es.alesqui.intelligence.model.conversation.ConversationRecord;
 import es.alesqui.intelligence.model.conversation.ConversationStatus;
 import es.alesqui.intelligence.repository.ConversationRecordRepository;
@@ -28,6 +29,7 @@ import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -576,16 +578,93 @@ public class ConversationService {
     }
 
     /**
-     * Counts the total number of open support tickets across all users.
-     * A ticket is considered open when its status is either REPORTED_BY_USER
-     * (flagged by the user for review) or ERROR_PROCESSING (failed automatically
-     * during AI processing). This count is intended for the IT Dashboard inbox widget.
+     * Counts open support tickets visible to the current user.
+     * A ticket is considered open when its status is either REPORTED_BY_USER or
+     * ERROR_PROCESSING. For SUPERADMIN users all tickets are included; for other
+     * roles only tickets from users who share at least one group with the caller
+     * are counted, mirroring the filtering logic applied by {@link #getTickets}.
      *
      * @return a Mono emitting the number of open tickets pending IT review.
      */
     public Mono<Long> countOpenTickets() {
-        return repository.countByStatusIn(
-            List.of(ConversationStatus.REPORTED_BY_USER, ConversationStatus.ERROR_PROCESSING));
+        List<ConversationStatus> openStatuses =
+            List.of(ConversationStatus.REPORTED_BY_USER, ConversationStatus.ERROR_PROCESSING);
+
+        return userService.getCurrentUser()
+            .flatMap(currentUser -> {
+                boolean isSuperAdmin = currentUser.getRoles() != null &&
+                    currentUser.getRoles().contains(es.alesqui.intelligence.model.core.enums.Role.ROLE_SUPERADMIN);
+
+                if (isSuperAdmin) {
+                    return repository.countByStatusIn(openStatuses);
+                }
+                return groupMembershipService.getGroupIdsByUserId(currentUser.getId())
+                    .collectList()
+                    .flatMap(groupIds -> {
+                        if (groupIds.isEmpty()) {
+                            return Mono.just(0L);
+                        }
+                        return groupMembershipService.getUserIdsByGroupIds(groupIds)
+                            .collectList()
+                            .flatMap(userIds -> {
+                                if (userIds.isEmpty()) {
+                                    return Mono.just(0L);
+                                }
+                                return userService.getUsernamesByIds(userIds)
+                                    .collectList()
+                                    .flatMap(usernames -> {
+                                        if (usernames.isEmpty()) {
+                                            return Mono.just(0L);
+                                        }
+                                        return repository.countByStatusInAndUsernameIn(openStatuses, usernames);
+                                    });
+                            });
+                    });
+            });
+    }
+
+    /**
+     * Returns ticket counts grouped by status for the last 30 days.
+     * For SUPERADMIN users all tickets are included; for other roles only tickets
+     * from users who share at least one group with the caller are counted,
+     * mirroring the filtering logic applied by {@link #getTickets}.
+     * SUCCESS records are excluded as they represent normal conversations.
+     *
+     * @return a Mono emitting a TicketStatsDTO with per-status counts.
+     */
+    public Mono<TicketStatsDTO> getTicketStats() {
+        Instant since = Instant.now().minus(30, ChronoUnit.DAYS);
+        return userService.getCurrentUser()
+            .flatMap(currentUser -> {
+                boolean isSuperAdmin = currentUser.getRoles() != null &&
+                    currentUser.getRoles().contains(es.alesqui.intelligence.model.core.enums.Role.ROLE_SUPERADMIN);
+
+                if (isSuperAdmin) {
+                    return repository.countTicketsByStatusSince(since);
+                }
+                return groupMembershipService.getGroupIdsByUserId(currentUser.getId())
+                    .collectList()
+                    .flatMap(groupIds -> {
+                        if (groupIds.isEmpty()) {
+                            return Mono.just(new TicketStatsDTO(0L, 0L, 0L, 0L));
+                        }
+                        return groupMembershipService.getUserIdsByGroupIds(groupIds)
+                            .collectList()
+                            .flatMap(userIds -> {
+                                if (userIds.isEmpty()) {
+                                    return Mono.just(new TicketStatsDTO(0L, 0L, 0L, 0L));
+                                }
+                                return userService.getUsernamesByIds(userIds)
+                                    .collectList()
+                                    .flatMap(usernames -> {
+                                        if (usernames.isEmpty()) {
+                                            return Mono.just(new TicketStatsDTO(0L, 0L, 0L, 0L));
+                                        }
+                                        return repository.countTicketsByStatusSinceAndUsernameIn(since, usernames);
+                                    });
+                            });
+                    });
+            });
     }
 
 }

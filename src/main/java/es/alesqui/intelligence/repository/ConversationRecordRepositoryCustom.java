@@ -2,10 +2,12 @@ package es.alesqui.intelligence.repository;
 
 import es.alesqui.intelligence.dto.conversation.ConversationSummaryDTO;
 import es.alesqui.intelligence.dto.conversation.LastConversationInfo;
+import es.alesqui.intelligence.dto.conversation.TicketStatsDTO;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.List;
 
 public interface ConversationRecordRepositoryCustom {
 
@@ -65,4 +67,25 @@ public interface ConversationRecordRepositoryCustom {
      *         conversation, or an empty Mono if none exists.
      */
     Mono<LastConversationInfo> findLastConversationByUsername(String username);
+
+    /**
+     * Counts tickets grouped by status for records created on or after the given instant.
+     * Only REPORTED_BY_USER, ERROR_PROCESSING, UNDER_REVIEW, and RESOLVED statuses are
+     * included; SUCCESS records are excluded as they represent normal conversations.
+     *
+     * @param since the inclusive lower bound for the record timestamp.
+     * @return a Mono emitting a TicketStatsDTO with per-status counts.
+     */
+    Mono<TicketStatsDTO> countTicketsByStatusSince(Instant since);
+
+    /**
+     * Same as {@link #countTicketsByStatusSince(Instant)} but restricted to records
+     * belonging to the given set of usernames. Used for group-filtered views where
+     * non-SUPERADMIN users should only see tickets from users in their groups.
+     *
+     * @param since     the inclusive lower bound for the record timestamp.
+     * @param usernames the set of usernames whose tickets are visible to the caller.
+     * @return a Mono emitting a TicketStatsDTO with per-status counts.
+     */
+    Mono<TicketStatsDTO> countTicketsByStatusSinceAndUsernameIn(Instant since, List<String> usernames);
 }
