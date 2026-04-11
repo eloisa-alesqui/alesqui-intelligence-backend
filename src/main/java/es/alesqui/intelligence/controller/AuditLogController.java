@@ -3,6 +3,7 @@ package es.alesqui.intelligence.controller;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +18,7 @@ import es.alesqui.intelligence.dto.audit.PagedAuditLogResponse;
 import es.alesqui.intelligence.model.audit.AuditAction;
 import es.alesqui.intelligence.model.audit.AuditLog;
 import es.alesqui.intelligence.model.audit.EntityType;
+import es.alesqui.intelligence.security.SecurityUtils;
 import es.alesqui.intelligence.service.audit.AuditService;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -205,6 +207,20 @@ public class AuditLogController {
         log.debug("Fetching audit log statistics");
 
         return auditService.getAuditStats();
+    }
+
+    /**
+     * Retrieves a count of audit log entries per action for the authenticated user
+     * over the last N days. Covers user, group, and API management actions only.
+     *
+     * @param days number of days to look back (default: 30)
+     * @return a map of action name to count (actions with 0 occurrences are omitted)
+     */
+    @GetMapping("/audit-logs/my-stats")
+    public Mono<Map<String, Long>> getMyAuditStats(
+            @RequestParam(defaultValue = "30") @Min(1) int days) {
+        return SecurityUtils.getCurrentUsername()
+                .flatMap(username -> auditService.getMyAuditStats(username, days));
     }
 
     // ==================== HELPER METHODS ====================
