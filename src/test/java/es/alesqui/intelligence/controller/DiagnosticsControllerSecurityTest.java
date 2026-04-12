@@ -67,4 +67,12 @@ class DiagnosticsControllerSecurityTest {
                 .exchange()
                 .expectStatus().isForbidden();
     }
+
+    @Test
+    void getTicketStats_businessRole_returns403() {
+        webClient.mutateWith(SecurityMockServerConfigurers.mockUser("biz@example.com").roles("BUSINESS"))
+                .get().uri("/api/diagnostics/tickets/stats")
+                .exchange()
+                .expectStatus().isForbidden();
+    }
 }

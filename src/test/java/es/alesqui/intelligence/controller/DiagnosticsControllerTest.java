@@ -3,6 +3,7 @@ package es.alesqui.intelligence.controller;
 import es.alesqui.intelligence.config.TestSecurityConfig;
 import es.alesqui.intelligence.dto.conversation.ConversationDetailDTO;
 import es.alesqui.intelligence.dto.conversation.DiagnosticTicketDTO;
+import es.alesqui.intelligence.dto.conversation.TicketStatsDTO;
 import es.alesqui.intelligence.model.conversation.ConversationStatus;
 import es.alesqui.intelligence.security.JwtService;
 import es.alesqui.intelligence.service.conversation.ConversationService;
@@ -117,6 +118,24 @@ class DiagnosticsControllerTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.id").isEqualTo("rec-1");
+    }
+
+    // ──────────────────────────── getTicketStats ────────────────────────────
+
+    @Test
+    void getTicketStats_returns200WithCounts() {
+        given(conversationService.getTicketStats())
+                .willReturn(Mono.just(new TicketStatsDTO(3, 2, 1, 5)));
+
+        webClient.get()
+                .uri("/api/diagnostics/tickets/stats")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.reportedByUser").isEqualTo(3)
+                .jsonPath("$.errorProcessing").isEqualTo(2)
+                .jsonPath("$.underReview").isEqualTo(1)
+                .jsonPath("$.resolved").isEqualTo(5);
     }
 
     // ──────────────────────────── addInternalNote ────────────────────────────

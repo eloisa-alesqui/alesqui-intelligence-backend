@@ -20,7 +20,9 @@ import reactor.core.publisher.Mono;
  * reactive types (Mono and Flux).
  */
 @Repository
-public interface ConversationRecordRepository extends ReactiveMongoRepository<ConversationRecord, String> {
+public interface ConversationRecordRepository
+        extends ReactiveMongoRepository<ConversationRecord, String>,
+                ConversationRecordRepositoryCustom {
 
     /**
      * Finds all interaction records belonging to a single conversation, ordered by timestamp.
@@ -167,5 +169,9 @@ public interface ConversationRecordRepository extends ReactiveMongoRepository<Co
      */
     Mono<Long> countByStatusInAndUsernameInAndUsernameContainsIgnoreCase(
             List<ConversationStatus> statuses, List<String> usernames, String usernameSearch);
+
+    Mono<Long> countByUsername(String username);
+
+    Mono<Long> countByUsernameAndResponseChartIsNotNull(String username);
 }
 

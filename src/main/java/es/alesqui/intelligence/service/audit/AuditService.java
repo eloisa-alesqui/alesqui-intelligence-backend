@@ -13,13 +13,16 @@ import org.bson.Document;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.ReactiveMongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -636,7 +639,41 @@ public class AuditService {
                 .build();
     }
 
-    
+    public Mono<Map<String, Long>> getMyAuditStats(String username, int days) {
+        Instant since = Instant.now().minus(days, ChronoUnit.DAYS);
+        List<String> actions = List.of(
+            "USER_CREATED", "USER_UPDATED", "USER_DELETED",
+            "USER_ACTIVATED", "USER_DEACTIVATED", "USER_PASSWORD_CHANGED",
+            "USER_ROLES_CHANGED", "USER_ASSIGNED_TO_GROUP", "USER_REMOVED_FROM_GROUP",
+            "GROUP_CREATED", "GROUP_UPDATED", "GROUP_DELETED",
+            "GROUP_USERS_ASSIGNED", "GROUP_USER_REMOVED",
+            "GROUP_APIS_ASSIGNED", "GROUP_API_REMOVED",
+            "API_CREATED", "API_UPDATED", "API_DELETED",
+            "API_ASSIGNED_TO_GROUP", "API_REMOVED_FROM_GROUP"
+        );
+
+        return mongoTemplate.aggregate(
+            Aggregation.newAggregation(
+                Aggregation.match(
+                    Criteria.where("actorUsername").is(username)
+                        .and("timestamp").gte(since)
+                        .and("action").in(actions)
+                        .and("result").is("SUCCESS")
+                ),
+                Aggregation.group("action").count().as("count")
+            ),
+            "audit_logs",
+            Document.class
+        )
+        .collectList()
+        .map(docs -> {
+            Map<String, Long> result = new LinkedHashMap<>();
+            for (Document doc : docs) {
+                result.put(doc.getString("_id"), ((Number) doc.get("count")).longValue());
+            }
+            return result;
+        });
+    }
 
     // ==================== Utility Methods ====================
 

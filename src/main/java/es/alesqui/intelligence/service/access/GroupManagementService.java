@@ -347,6 +347,15 @@ public class GroupManagementService {
      * @param request the HTTP request for audit logging
      * @return Mono signaling completion
      */
+    /**
+     * Counts the total number of groups in the system.
+     *
+     * @return a Mono emitting the total group count.
+     */
+    public Mono<Long> countGroups() {
+        return groupRepository.count();
+    }
+
     public Mono<Void> logGroupOperationFailure(AuditAction action, String groupId, String groupName,
                                                String errorMessage, ServerHttpRequest request) {
         return auditService.logFailure(
