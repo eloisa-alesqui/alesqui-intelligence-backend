@@ -79,6 +79,17 @@
 			<scope>runtime</scope>
 		</dependency>
 		<!-- ================================================================================================ -->
+		<!-- OAUTH2 -->
+		<!-- ================================================================================================ -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+		<!-- ================================================================================================ -->
 		<!-- SPRING AI -->
 		<!-- ================================================================================================ -->
 		<dependency>
@@ -177,10 +188,44 @@
 			<artifactId>mongodb</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- HTTP Mocking -->
+		<!-- HTTP Mocking: wiremock-jetty12 provides the HTTP server factory;
+		     exclude Jetty 11 HTTP/2 artifacts that wiremock core pulls in and
+		     conflict with the Jetty 12 runtime from wiremock-jetty12 -->
 		<dependency>
 			<groupId>org.wiremock</groupId>
 			<artifactId>wiremock</artifactId>
+			<version>${wiremock.version}</version>
+			<scope>test</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>org.eclipse.jetty.http2</groupId>
+					<artifactId>http2-server</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.eclipse.jetty.http2</groupId>
+					<artifactId>http2-common</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.eclipse.jetty.http2</groupId>
+					<artifactId>http2-hpack</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.eclipse.jetty</groupId>
+					<artifactId>jetty-servlet</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.eclipse.jetty</groupId>
+					<artifactId>jetty-servlets</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.eclipse.jetty</groupId>
+					<artifactId>jetty-webapp</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>org.wiremock</groupId>
+			<artifactId>wiremock-jetty12</artifactId>
 			<version>${wiremock.version}</version>
 			<scope>test</scope>
 		</dependency>

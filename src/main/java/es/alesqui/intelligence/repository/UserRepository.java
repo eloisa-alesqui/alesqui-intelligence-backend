@@ -1,6 +1,7 @@
 package es.alesqui.intelligence.repository;
 
 import es.alesqui.intelligence.model.core.User;
+import es.alesqui.intelligence.model.core.enums.AuthProvider;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import reactor.core.publisher.Mono;
 
@@ -40,4 +41,13 @@ public interface UserRepository extends ReactiveMongoRepository<User, String> {
      * empty if no user with that token exists.
      */
     Mono<User> findByActivationToken(String activationToken);
+
+    /**
+     * Finds a user by their OAuth2 provider and provider-specific ID.
+     *
+     * @param authProvider the authentication provider (e.g. GOOGLE)
+     * @param providerId   the provider-specific unique ID (e.g. Google's 'sub' claim)
+     * @return A {@link Mono} that emits the {@link User} if found, or completes empty.
+     */
+    Mono<User> findByAuthProviderAndProviderId(AuthProvider authProvider, String providerId);
 }

@@ -1,6 +1,7 @@
 package es.alesqui.intelligence.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -9,6 +10,9 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
+import es.alesqui.intelligence.model.core.User;
+
+import java.time.Duration;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -27,6 +31,10 @@ import javax.crypto.SecretKey;
  */
 @Service
 public class JwtService {
+
+    private static final String ACCESS_TOKEN_TYPE = "access";
+    private static final String REFRESH_TOKEN_TYPE = "refresh";
+    private static final String LINK_GOOGLE_TYPE = "link-google";
 
     /**
      * The secret key used for signing and verifying JWTs.
@@ -82,7 +90,7 @@ public class JwtService {
      * @return A signed JWT access token.
      */
     public String generateToken(UserDetails userDetails) {
-        return buildToken(new HashMap<>(), userDetails, jwtExpiration, "access");
+        return buildToken(new HashMap<>(), userDetails, jwtExpiration, ACCESS_TOKEN_TYPE);
     }
 
     /**
@@ -95,7 +103,7 @@ public class JwtService {
      * @return A signed JWT refresh token.
      */
     public String generateRefreshToken(UserDetails userDetails) {
-        return buildToken(new HashMap<>(), userDetails, refreshExpiration, "refresh");
+        return buildToken(new HashMap<>(), userDetails, refreshExpiration, REFRESH_TOKEN_TYPE);
     }
 
     /**
@@ -130,7 +138,7 @@ public class JwtService {
      * @return true if the token type is "access".
      */
     public boolean isAccessToken(String token) {
-        return "access".equals(extractTokenType(token));
+        return ACCESS_TOKEN_TYPE.equals(extractTokenType(token));
     }
 
     /**
@@ -140,7 +148,7 @@ public class JwtService {
      * @return true if the token type is "refresh".
      */
     public boolean isRefreshToken(String token) {
-        return "refresh".equals(extractTokenType(token));
+        return REFRESH_TOKEN_TYPE.equals(extractTokenType(token));
     }
 
     /**
@@ -165,6 +173,12 @@ public class JwtService {
                 .collect(Collectors.toList());
     	extraClaims.put("authorities", authorities);
     	extraClaims.put("typ", tokenType);
+
+    	if (userDetails instanceof User u && u.getAuthProvider() != null) {
+    	    extraClaims.put("authProvider", u.getAuthProvider().name());
+    	} else {
+    	    extraClaims.put("authProvider", "LOCAL");
+    	}
 
         return Jwts
                 .builder()
@@ -210,6 +224,48 @@ public class JwtService {
         		.build()
         		.parseSignedClaims(token)
         		.getPayload();
+    }
+
+    /**
+     * Generates a short-lived JWT used as a link challenge when a LOCAL account
+     * needs to be linked to a Google identity.
+     *
+     * @param email     the user's email (becomes the JWT subject)
+     * @param googleSub Google's stable user ID ('sub' claim)
+     * @param ttl       time-to-live for the challenge token
+     * @return a signed JWT challenge token
+     */
+    public String generateLinkChallenge(String email, String googleSub, Duration ttl) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("typ", LINK_GOOGLE_TYPE);
+        claims.put("googleSub", googleSub);
+        return Jwts.builder()
+                .claims(claims)
+                .subject(email)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + ttl.toMillis()))
+                .signWith(getSignInKey())
+                .compact();
+    }
+
+    /**
+     * Validates a link challenge JWT produced by {@link #generateLinkChallenge}.
+     *
+     * @param token     the challenge token to validate
+     * @param email     the expected email (subject)
+     * @param googleSub the expected Google 'sub' value
+     * @return true if the token is valid, not expired, and matches the expected claims
+     */
+    public boolean isValidLinkChallenge(String token, String email, String googleSub) {
+        try {
+            Claims c = Jwts.parser().verifyWith(getSignInKey()).build()
+                           .parseSignedClaims(token).getPayload();
+            return LINK_GOOGLE_TYPE.equals(c.get("typ", String.class))
+                && email.equals(c.getSubject())
+                && googleSub.equals(c.get("googleSub", String.class));
+        } catch (JwtException e) {
+            return false;
+        }
     }
 
     /**

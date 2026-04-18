@@ -10,8 +10,13 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
+
+import es.alesqui.intelligence.model.core.enums.AuthProvider;
+import es.alesqui.intelligence.model.core.enums.Role;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -183,6 +188,91 @@ class JwtServiceTest {
             String tampered = token.substring(0, token.length() - 4) + "XXXX";
             assertThatThrownBy(() -> jwtService.extractUsername(tampered))
                     .isInstanceOf(JwtException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("authProvider claim")
+    class AuthProviderClaim {
+
+        @Test
+        @DisplayName("access token with GOOGLE user embeds authProvider=GOOGLE")
+        void generateToken_withGoogleUser_embedsAuthProviderClaim() {
+            es.alesqui.intelligence.model.core.User googleUser = es.alesqui.intelligence.model.core.User.builder()
+                    .username("google@example.com")
+                    .authProvider(AuthProvider.GOOGLE)
+                    .roles(Set.of(Role.ROLE_TRIAL))
+                    .build();
+            String token = jwtService.generateToken(googleUser);
+            String authProvider = jwtService.extractClaim(token, claims -> claims.get("authProvider", String.class));
+            assertThat(authProvider).isEqualTo("GOOGLE");
+        }
+
+        @Test
+        @DisplayName("access token with LOCAL user embeds authProvider=LOCAL")
+        void generateToken_withLocalUser_embedsLocalClaim() {
+            es.alesqui.intelligence.model.core.User localUser = es.alesqui.intelligence.model.core.User.builder()
+                    .username("local@example.com")
+                    .authProvider(AuthProvider.LOCAL)
+                    .roles(Set.of(Role.ROLE_IT))
+                    .build();
+            String token = jwtService.generateToken(localUser);
+            String authProvider = jwtService.extractClaim(token, claims -> claims.get("authProvider", String.class));
+            assertThat(authProvider).isEqualTo("LOCAL");
+        }
+
+        @Test
+        @DisplayName("access token with null authProvider falls back to LOCAL")
+        void generateToken_withNullProvider_embedsLocalFallback() {
+            es.alesqui.intelligence.model.core.User user = es.alesqui.intelligence.model.core.User.builder()
+                    .username("noauth@example.com")
+                    .authProvider(null)
+                    .roles(Set.of(Role.ROLE_IT))
+                    .build();
+            String token = jwtService.generateToken(user);
+            String authProvider = jwtService.extractClaim(token, claims -> claims.get("authProvider", String.class));
+            assertThat(authProvider).isEqualTo("LOCAL");
+        }
+    }
+
+    @Nested
+    @DisplayName("generateLinkChallenge / isValidLinkChallenge")
+    class LinkChallenge {
+
+        @Test
+        @DisplayName("generate and validate happy path returns true")
+        void generateAndValidate_happyPath() {
+            String challenge = jwtService.generateLinkChallenge("user@example.com", "google-sub-123", Duration.ofMinutes(5));
+            assertThat(jwtService.isValidLinkChallenge(challenge, "user@example.com", "google-sub-123")).isTrue();
+        }
+
+        @Test
+        @DisplayName("wrong email returns false")
+        void validate_wrongEmail_returnsFalse() {
+            String challenge = jwtService.generateLinkChallenge("user@example.com", "google-sub-123", Duration.ofMinutes(5));
+            assertThat(jwtService.isValidLinkChallenge(challenge, "wrong@example.com", "google-sub-123")).isFalse();
+        }
+
+        @Test
+        @DisplayName("wrong sub returns false")
+        void validate_wrongSub_returnsFalse() {
+            String challenge = jwtService.generateLinkChallenge("user@example.com", "google-sub-123", Duration.ofMinutes(5));
+            assertThat(jwtService.isValidLinkChallenge(challenge, "user@example.com", "wrong-sub")).isFalse();
+        }
+
+        @Test
+        @DisplayName("tampered token returns false")
+        void validate_tamperedToken_returnsFalse() {
+            String challenge = jwtService.generateLinkChallenge("user@example.com", "google-sub-123", Duration.ofMinutes(5));
+            String tampered = challenge.substring(0, challenge.length() - 4) + "XXXX";
+            assertThat(jwtService.isValidLinkChallenge(tampered, "user@example.com", "google-sub-123")).isFalse();
+        }
+
+        @Test
+        @DisplayName("expired challenge returns false")
+        void validate_expiredChallenge_returnsFalse() {
+            String challenge = jwtService.generateLinkChallenge("user@example.com", "google-sub-123", Duration.ofMillis(-1));
+            assertThat(jwtService.isValidLinkChallenge(challenge, "user@example.com", "google-sub-123")).isFalse();
         }
     }
 }
