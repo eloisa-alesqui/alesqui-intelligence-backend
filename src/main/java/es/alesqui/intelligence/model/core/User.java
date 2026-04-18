@@ -7,12 +7,15 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import es.alesqui.intelligence.model.core.enums.AuthProvider;
 import es.alesqui.intelligence.model.core.enums.Role;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -27,11 +30,19 @@ import lombok.NoArgsConstructor;
  * 2. It implements the Spring Security `UserDetails` interface, allowing the framework
  * to handle authentication and authorization based on this model.
  */
-@Data 
+@Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @Document("users")
+@CompoundIndexes({
+    @CompoundIndex(
+        name = "provider_id_unique",
+        def = "{'authProvider':1,'providerId':1}",
+        unique = true,
+        partialFilter = "{ providerId: { $exists: true } }"
+    )
+})
 public class User implements UserDetails {
 
     /**
@@ -97,6 +108,20 @@ public class User implements UserDetails {
      * Typically 14 days after trial start. Used to determine if trial has expired.
      */
     private Instant trialEndDate;
+
+    /**
+     * Authentication provider. LOCAL for email/password users, GOOGLE for OAuth2 Google users.
+     * Existing documents without this field are treated as LOCAL.
+     */
+    @Builder.Default
+    private AuthProvider authProvider = AuthProvider.LOCAL;
+
+    /**
+     * Provider-specific user identifier ('sub' claim from Google).
+     * Null for LOCAL users. Indexed for fast OAuth2 lookups.
+     */
+    @Indexed
+    private String providerId;
 
     /**
      * Password reset token. Generated when a user requests a password reset.

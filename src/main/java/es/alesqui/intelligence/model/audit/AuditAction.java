@@ -103,7 +103,21 @@ public enum AuditAction {
      * User requests or completes a password reset.
      * Use AuditResult.SUCCESS for both the link-sent and password-changed stages.
      */
-    AUTH_PASSWORD_RESET("Password reset");
+    AUTH_PASSWORD_RESET("Password reset"),
+
+    // ==================== OAuth2 / Social Login Actions ====================
+
+    /** User authenticated via OAuth2 (e.g. Google Sign-In) */
+    AUTH_OAUTH2_LOGIN("OAuth2 login"),
+
+    /** OAuth2 login attempt failed (invalid token, bad audience, etc.) */
+    AUTH_OAUTH2_LOGIN_FAILED("OAuth2 login failed"),
+
+    /** Existing LOCAL account linked to a Google OAuth2 identity */
+    USER_LINKED_GOOGLE("User account linked to Google"),
+
+    /** New user account created via OAuth2 social login */
+    USER_CREATED_OAUTH2("User account created via OAuth2");
 
     private final String description;
 

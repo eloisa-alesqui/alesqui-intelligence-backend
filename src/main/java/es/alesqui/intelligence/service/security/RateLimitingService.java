@@ -41,11 +41,13 @@ public class RateLimitingService {
     private final TrialConfigurationProperties trialConfig;
     private final SecurityConfigurationProperties securityConfig;
 
+
     private final ConcurrentHashMap<String, Instant> ipRegistrationAttempts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<Instant>> ipPasswordResetAttempts = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CopyOnWriteArrayList<Instant>> ipOAuth2Attempts = new ConcurrentHashMap<>();
 
     private static final Duration CLEANUP_INTERVAL = Duration.ofHours(1);
-    private Instant lastCleanup = Instant.now();
+    private volatile Instant lastCleanup = Instant.now();
 
     /**
      * Checks if an IP address is allowed to register for trial.
@@ -168,8 +170,62 @@ public class RateLimitingService {
                     attempts.removeIf(attempt -> Duration.between(attempt, now).compareTo(resetWindow) >= 0));
             ipPasswordResetAttempts.entrySet().removeIf(entry -> entry.getValue().isEmpty());
 
+            // Clean OAuth2 map
+            Duration oauth2Window = Duration.ofMinutes(securityConfig.getOauth2().getWindowMinutes());
+            ipOAuth2Attempts.forEach((ip, attempts) ->
+                    attempts.removeIf(attempt -> Duration.between(attempt, now).compareTo(oauth2Window) >= 0));
+            ipOAuth2Attempts.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+
             lastCleanup = now;
         }
+    }
+
+    /**
+     * Checks if an IP address is allowed to call an OAuth2 endpoint.
+     *
+     * @param ipAddress the client IP address
+     * @return Mono<Boolean> true if allowed, false if rate limited
+     */
+    public Mono<Boolean> isOAuth2Allowed(String ipAddress) {
+        return Mono.fromCallable(() -> {
+            performCleanupIfNeeded();
+
+            CopyOnWriteArrayList<Instant> attempts = ipOAuth2Attempts.get(ipAddress);
+            if (attempts == null || attempts.isEmpty()) {
+                return true;
+            }
+
+            Duration window = Duration.ofMinutes(securityConfig.getOauth2().getWindowMinutes());
+            int maxAttempts = securityConfig.getOauth2().getMaxAttempts();
+            Instant now = Instant.now();
+            long recentAttempts = attempts.stream()
+                    .filter(attempt -> Duration.between(attempt, now).compareTo(window) < 0)
+                    .count();
+
+            boolean allowed = recentAttempts < maxAttempts;
+
+            if (!allowed) {
+                log.warn("[RateLimit] IP {} blocked for OAuth2 - {} attempts in last {}min",
+                        ipAddress, recentAttempts, securityConfig.getOauth2().getWindowMinutes());
+            }
+
+            return allowed;
+        });
+    }
+
+    /**
+     * Records an OAuth2 endpoint attempt for the IP address.
+     *
+     * @param ipAddress the client IP address
+     * @return Mono<Void> completion signal
+     */
+    public Mono<Void> recordOAuth2Attempt(String ipAddress) {
+        return Mono.fromRunnable(() -> {
+            ipOAuth2Attempts
+                    .computeIfAbsent(ipAddress, k -> new CopyOnWriteArrayList<>())
+                    .add(Instant.now());
+            log.debug("[RateLimit] Recorded OAuth2 attempt for IP {}", ipAddress);
+        });
     }
 
     /**
