@@ -41,6 +41,8 @@ import es.alesqui.intelligence.service.chat.tools.DataTools;
 import es.alesqui.intelligence.service.chat.tools.ExportTools;
 import es.alesqui.intelligence.service.chat.tools.ToolContextKeys;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Value;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
@@ -69,6 +71,9 @@ public class AIChatService {
 	private final ChatPromptBuilder chatPromptBuilder;
 	private final ToolResponseProcessor toolResponseProcessor;
 	private final HallucinationCorrector hallucinationCorrector;
+
+	@Value("${alesqui.ai.react.max-iterations:15}")
+	private int maxReactIterations;
 
 	/**
 	 * Validates input parameters to ensure they are not null or empty.
@@ -288,7 +293,14 @@ public class AIChatService {
 								chatResponse, turnHistory, chatClient, chatOptions, toolContext, statusSink);
 
 						// --- Main ReAct (Reason-Act) Loop ---
+						int iteration = 0;
 						while (chatResponse.hasToolCalls()) {
+							if (++iteration > maxReactIterations) {
+								log.warn("ReAct loop hit max-iterations={} — forcing exit. lastToolCalls={}",
+										maxReactIterations, chatResponse.getResult().getOutput().getToolCalls());
+								meterRegistry.counter("ai.react.max_iterations_hit").increment();
+								break;
+							}
 							log.debug("AI requested tool execution.");
 
 							// Capture reasoning: thought and tool calls

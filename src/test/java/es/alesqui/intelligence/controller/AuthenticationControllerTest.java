@@ -21,6 +21,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
+import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -52,6 +53,10 @@ class AuthenticationControllerTest {
 
     @MockitoBean
     JwtService jwtService;
+
+    // Required by JwtAuthenticationWebFilter (auto-scanned @Component WebFilter)
+    @MockitoBean
+    ReactiveUserDetailsService reactiveUserDetailsService;
 
     @MockitoBean
     UserActivationService userActivationService;

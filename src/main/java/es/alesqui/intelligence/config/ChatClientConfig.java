@@ -1,9 +1,11 @@
 package es.alesqui.intelligence.config;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -14,11 +16,15 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Configuration class for AI chat client components.
- * * This class focuses specifically on configuring:
- * - OpenAI API integration
- * - OpenAI Chat Model setup
- * - ChatClient for application use
- * * It depends on HTTP clients configured in HttpClientConfig for network communication.
+ *
+ * Supports multiple AI providers selectable via {@code alesqui.ai.provider}:
+ * - {@code openai} (default) — uses OpenAI API with proxy-aware HTTP clients
+ * - {@code ollama} — uses a self-hosted Ollama instance (auto-configured by Spring AI starter)
+ *
+ * The {@link ChatClient} bean is provider-agnostic: it depends on {@link ChatModel},
+ * so the rest of the application is decoupled from the active provider.
+ *
+ * It depends on HTTP clients configured in HttpClientConfig for network communication.
  */
 @Configuration
 @Slf4j
@@ -41,6 +47,7 @@ public class ChatClientConfig {
      * @return a configured OpenAiApi instance with custom HTTP clients and API key
      */
     @Bean
+    @ConditionalOnProperty(name = "spring.ai.model.chat", havingValue = "openai", matchIfMissing = true)
     public OpenAiApi openAiApi(RestClient restClient, WebClient.Builder webClientBuilder) {
         log.info("Configuring OpenAiApi with proxy-aware RestClient and WebClient.Builder");
         
@@ -63,7 +70,7 @@ public class ChatClientConfig {
      * @return a configured OpenAiChatModel instance
      */
     @Bean
-    @Primary
+    @ConditionalOnProperty(name = "spring.ai.model.chat", havingValue = "openai", matchIfMissing = true)
     public OpenAiChatModel openAiChatModel(OpenAiApi openAiApi) {
         OpenAiChatModel openAiChatModel = OpenAiChatModel.builder()
             .openAiApi(openAiApi)
@@ -73,17 +80,15 @@ public class ChatClientConfig {
     }
 
     /**
-     * Creates and configures the main ChatClient bean for the application.
-     * * This is the primary client used throughout the application for chat interactions.
-     * It's built using the custom OpenAiChatModel which includes all the proxy
-     * configurations and custom settings.
+     * Creates the main ChatClient bean for the application.
+     * Provider-agnostic: receives whichever {@link ChatModel} is active.
      *
-     * @param chatModel the configured OpenAiChatModel for chat operations
+     * @param chatModel the active ChatModel (OpenAI or Ollama)
      * @return a configured ChatClient instance ready for use in the application
      */
     @Bean
     @Primary
-    public ChatClient chatClient(OpenAiChatModel chatModel) {
+    public ChatClient chatClient(ChatModel chatModel) {
         ChatClient client = ChatClient
         		.builder(chatModel)
         		.build();

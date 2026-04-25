@@ -156,6 +156,10 @@ On first startup in `CORPORATE` mode, the service automatically creates an initi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AI_PROVIDER` | `openai` | AI provider: `openai` or `ollama` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL (when `AI_PROVIDER=ollama`) |
+| `OLLAMA_MODEL` | `gemma4` | Ollama model tag (when `AI_PROVIDER=ollama`) |
+| `AI_REACT_MAX_ITERATIONS` | `15` | Max ReAct tool-calling iterations before forced exit |
 | `chat.processing-timeout` | `120` | AI processing timeout in seconds |
 | `chat.max-conversation-history` | `20` | Max messages retained per conversation |
 
@@ -313,6 +317,13 @@ POST /api/chat/stream
 
 SSE stream → STATUS events (reasoning) + FINAL_RESPONSE
 ```
+
+**Supported providers:** The AI layer supports two providers, selectable via `AI_PROVIDER`:
+
+- **`openai`** (default) — Uses the OpenAI API (`gpt-4o-mini`). Requires `OPENAI_API_KEY`.
+- **`ollama`** — Uses a self-hosted Ollama instance for on-premise inference. Requires `OLLAMA_BASE_URL` and a pulled model (e.g. `ollama pull gemma4`).
+
+Compare provider latency via Actuator metrics: `ai.chat.with.tools.duration` and `ai.extraction.duration` at `/actuator/metrics`.
 
 ### User Roles
 

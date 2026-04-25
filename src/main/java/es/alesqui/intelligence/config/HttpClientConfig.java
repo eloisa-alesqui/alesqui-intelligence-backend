@@ -66,6 +66,22 @@ public class HttpClientConfig {
     }
     
     /**
+     * Creates a primary RestClient.Builder bean with a long read timeout, used by
+     * Spring AI auto-configurations (e.g. Ollama). No proxy is configured here —
+     * proxy-aware HTTP for OpenAI is provided by the {@link #restClient()} bean above.
+     * The 5-minute read timeout accommodates slow self-hosted models (e.g. Gemma) that
+     * may take tens of seconds to load and generate.
+     */
+    @Bean
+    @Primary
+    public RestClient.Builder restClientBuilder() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(30));
+        factory.setReadTimeout(Duration.ofMinutes(5));
+        return RestClient.builder().requestFactory(factory);
+    }
+
+    /**
      * Creates a pre-configured, primary WebClient.Builder bean with optional proxy support.
      * By marking this bean with @Primary, we instruct Spring to use this builder as the
      * default choice across the application, resolving autoconfiguration conflicts.

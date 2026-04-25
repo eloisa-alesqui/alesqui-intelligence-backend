@@ -1,13 +1,11 @@
 package es.alesqui.intelligence.service.chat;
 
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import reactor.core.publisher.Mono;
@@ -15,11 +13,9 @@ import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Disabled
 @SpringBootTest
-@ActiveProfiles("test")
 @DisplayName("AIChatService Integration Tests")
-class AIChatServiceIntegrationTest {
+abstract class AIChatServiceIntegrationTest {
 
 	@MockitoBean
     private VectorStore vectorStore;
